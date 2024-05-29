@@ -1,0 +1,21 @@
+args = [
+    tranforms, 
+    full_dataset,
+    train_size
+    val_size
+    test_size
+    batch_size
+    num_workers
+    name
+    criterion
+    optimizer
+    lr
+    model
+    epochs
+    backbone
+]
+
+img_dir='data\\Pear\\leaves\\', data_path='data\\Pear\\'
+
+combined = Disease+Severity
+separate = Disease, Severity
