@@ -6,7 +6,8 @@ args = [
     test_size
     batch_size
     num_workers
-    name
+    name <-- name of the run
+    project_name <-- folder on wandb
     criterion
     optimizer
     lr
@@ -14,8 +15,3 @@ args = [
     epochs
     backbone
 ]
-
-img_dir='data\\Pear\\leaves\\', data_path='data\\Pear\\'
-
-combined = Disease+Severity
-separate = Disease, Severity
