@@ -1,20 +1,17 @@
-import torch
-from torch import nn
-from PIL import Image
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torch.utils.data.dataset import Dataset, random_split
-from torch.optim.lr_scheduler import StepLR
-import os
-import cv2 
-import matplotlib.pyplot as plt
-import numpy as np
-import time
-import datetime
-import wandb
-from utils import DiaMOSDataset, DiaMOSDataset_Cartesian, format_time, flat_accuracy, EarlyStopping, animal_version_name
-from sklearn.metrics import classification_report
 import json
+import time
+
+import numpy as np
+import torch
+import wandb
+from sklearn.metrics import classification_report
+from torch import nn
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import random_split
+from torchvision import transforms
+
+from utils import DiaMOSDataset_Cartesian, format_time, flat_accuracy, EarlyStopping, animal_version_name
 
 
 def one_hot_encode(labels, num_classes):
