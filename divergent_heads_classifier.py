@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torch.utils.data.dataset import Dataset, random_split
 from torch.optim.lr_scheduler import StepLR
+import torchvision.models as models
 import os
 import cv2 
 import matplotlib.pyplot as plt
@@ -17,9 +18,9 @@ from sklearn.metrics import classification_report
 import json
 
 
-class DiseaseSeverityModelV1(nn.Module):
+class DiseaseSeverityModelVGG(nn.Module):
     def __init__(self, num_disease_classes, num_severity_levels):
-        super(DiseaseSeverityModelV1, self).__init__()
+        super(DiseaseSeverityModelVGG, self).__init__()
         vgg19 = torch.hub.load('pytorch/vision:v0.6.0', 'vgg19', pretrained=True)
         for param in vgg19.features.parameters(): param.requires_grad = False
         self.features = vgg19.features
@@ -51,11 +52,47 @@ class DiseaseSeverityModelV1(nn.Module):
         disease_output = self.disease_classifier(x)
         severity_output = self.severity_classifier(x)
         return disease_output, severity_output
+    
+
+class DiseaseSeverityModelResNet50(nn.Module):
+    def __init__(self, num_disease_classes, num_severity_levels):
+        super(DiseaseSeverityModelResNet50, self).__init__()
+        resnet50 = models.resnet50(pretrained=True)
+        for param in resnet50.parameters(): param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet50.children())[:-2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(2048, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+        )
+        self.disease_classifier = nn.Sequential(
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Linear(4096, num_disease_classes),
+        )
+        self.severity_classifier = nn.Sequential(
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Linear(4096, num_severity_levels),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        disease_output = self.disease_classifier(x)
+        severity_output = self.severity_classifier(x)
+        return disease_output, severity_output
 
 
-def train(args, train_data, val_data, test_data, device, run):    
-    model = args.get("model", DiseaseSeverityModelV1(num_disease_classes=4, num_severity_levels=5))
-    model.to(device)
+def train_divergent(args, train_data, val_data, test_data, device, run):    
+    model = args.get("model", DiseaseSeverityModelVGG(num_disease_classes=4, num_severity_levels=5))
+    model = model.to(device)
     run.watch(model)
 
     criterion = args.get("criterion", nn.CrossEntropyLoss())  
@@ -250,7 +287,7 @@ def train(args, train_data, val_data, test_data, device, run):
     return model
 
 
-def run_experiment(args):
+def run_experiment_divergent(args):
     
     # ------------------------------
     # ----- Data Preparation -------
@@ -290,7 +327,7 @@ def run_experiment(args):
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
     run.config.update(args_dict)
-    model = train(args_dict, train_data, val_data, test_data, device, run)
+    model = train_divergent(args_dict, train_data, val_data, test_data, device, run)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -390,3 +427,5 @@ def run_experiment(args):
         f.write(json.dumps(info, indent=4))
 
     wandb.join()
+
+####

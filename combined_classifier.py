@@ -12,6 +12,7 @@ import numpy as np
 import time
 import datetime
 import wandb
+import torchvision.models as models
 from utils import DiaMOSDataset, DiaMOSDataset_Cartesian, format_time, flat_accuracy, EarlyStopping, animal_version_name
 from sklearn.metrics import classification_report
 import json
@@ -21,9 +22,9 @@ def one_hot_encode(labels, num_classes):
     return np.eye(num_classes)[labels]
 
 
-class DiseaseSeverityModel_CombinedV1(nn.Module):
+class DiseaseSeverityModel_CombinedVGG(nn.Module):
     def __init__(self, num_combined_labels):
-        super(DiseaseSeverityModel_CombinedV1, self).__init__()
+        super(DiseaseSeverityModel_CombinedVGG, self).__init__()
         vgg19 = torch.hub.load('pytorch/vision:v0.6.0', 'vgg19', pretrained=True)
         for param in vgg19.features.parameters(): param.requires_grad = False
         self.features = vgg19.features
@@ -42,12 +43,37 @@ class DiseaseSeverityModel_CombinedV1(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
+    
+    
+class DiseaseSeverityModel_CombinedResNet50(nn.Module):
+    def __init__(self, num_combined_labels):
+        super(DiseaseSeverityModel_CombinedResNet50, self).__init__()
+        resnet50 = models.resnet50(pretrained=True)
+        for param in resnet50.parameters(): param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet50.children())[:-2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(2048, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, num_combined_labels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
 
 
-def train(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
+def train_combined(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
     num_combined_labels = 20  # Adjust this according to your data
-    model = args.get("model", DiseaseSeverityModel_CombinedV1(num_combined_labels))
-    model.to(device)
+    model = args.get("model", DiseaseSeverityModel_CombinedVGG(num_combined_labels))
+    model = model.to(device)
     run.watch(model)
 
     criterion = args.get("criterion", nn.CrossEntropyLoss())  
@@ -207,13 +233,14 @@ def train(args, train_data, val_data, test_data, device, run, reverse_label_mapp
     print("Training complete!")
 
     # Load the best state dictionary into a new model
-    best_model = DiseaseSeverityModel_CombinedV1(num_combined_labels)
+    best_model = args.get("model", DiseaseSeverityModel_CombinedVGG(num_combined_labels))
     best_model.load_state_dict(torch.load('best_model.pt'))
 
     return best_model
 
 
-def run_experiment(args):
+def run_experiment_combined(args):
+
     # ------------------------------
     # ----- Data Preparation -------
     # ------------------------------
@@ -252,7 +279,7 @@ def run_experiment(args):
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
     run.config.update(args_dict)
-    model = train(args_dict, train_data, val_data, test_data, device, run, full_dataset.reverse_label_mapping)
+    model = train_combined(args_dict, train_data, val_data, test_data, device, run, full_dataset.reverse_label_mapping)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -357,3 +384,5 @@ def run_experiment(args):
         f.write(json.dumps(info, indent=4))
 
     wandb.join()
+
+##
