@@ -1,4 +1,5 @@
 args = [
+    type, 
     tranforms, 
     full_dataset,
     train_size
@@ -14,4 +15,9 @@ args = [
     model
     epochs
     backbone
+]
+
+separate classifiers args = [
+    disease_model
+    severity_model
 ]

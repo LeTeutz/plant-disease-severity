@@ -66,8 +66,8 @@ class SeverityModel(nn.Module):
 
 
 def train(args, train_data, val_data, test_data, device, run):
-    disease_model = DiseaseModel(num_disease_classes=4).to(device)
-    severity_model = SeverityModel(num_severity_levels=5).to(device)
+    disease_model = args.get("disease_model", DiseaseModel(num_disease_classes=4)).to(device)
+    severity_model = args.get("severity_model", SeverityModel(num_severity_levels=5)).to(device)
     run.watch(disease_model)
     run.watch(severity_model)
 
@@ -415,3 +415,4 @@ def run_experiment(args):
         f.write(json.dumps(info, indent=4))
 
     wandb.join()
+
