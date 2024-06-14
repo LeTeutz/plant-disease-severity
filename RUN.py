@@ -16,7 +16,6 @@ import datetime
 from wandb import Api
 from torch.optim.lr_scheduler import StepLR
 import torchvision.models as models
-from utils import DiaMOSDataset, DiaMOSDataset_Cartesian, format_time, flat_accuracy, EarlyStopping, animal_version_name
 from sklearn.metrics import classification_report
 import json
 

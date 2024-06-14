@@ -41,176 +41,187 @@ class DiseaseSeverityModel_CombinedV1(nn.Module):
         return x
 
 
-def train(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
-    num_combined_labels = 20  # Adjust this according to your data
-    model = args.get("model", DiseaseSeverityModel_CombinedV1(num_combined_labels))
-    model.to(device)
-    run.watch(model)
+def run_experiment(args):
+    def train(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
+        num_combined_labels = 20  # Adjust this according to your data
+        model = args.get("model", DiseaseSeverityModel_CombinedV1(num_combined_labels))
+        model.to(device)
+        run.watch(model)
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())  
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
-    avg_val_loss = 0
+        criterion = args.get("criterion", nn.CrossEntropyLoss())  
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+        avg_val_loss = 0
 
-    # add a scheduler
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+        # add a scheduler
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-    # Training loop
-    for epoch in range(epochs):
-        # ========================================
-        #               Training
-        # ========================================
+        # Training loop
+        for epoch in range(epochs):
+            # ========================================
+            #               Training
+            # ========================================
 
-        # Perform one full pass over the training set.
+            # Perform one full pass over the training set.
 
-        print("")
-        print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
-        print('Training...')
-        
-        # Measure how long the training epoch takes.
-        t0 = time.time()
-        
-        # Put the model into training mode. Don't be mislead--the call to
-        # `train` just changes the *mode*, it doesn't *perform* the training.
-        # `dropout` and `batchnorm` layers behave differently during training
-        # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
-        model.train()
-
-        # Reset the total loss for this epoch.
-        total_train_accuracy_disease = 0
-        total_train_accuracy_severity = 0
-        running_loss = 0.0
-
-        for step, batch in enumerate(train_data):
-            # Progress update every 4 batches
-            if step % 4 == 0 and not step == 0:
-                # Calculate elapsed time in minutes
-                elapsed = format_time(time.time() - t0)
-                # Report progress.
-                print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
+            print("")
+            print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
+            print('Training...')
             
-            images = batch[0].to(device)
-            combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
+            # Measure how long the training epoch takes.
+            t0 = time.time()
             
-            optimizer.zero_grad()
+            # Put the model into training mode. Don't be mislead--the call to
+            # `train` just changes the *mode*, it doesn't *perform* the training.
+            # `dropout` and `batchnorm` layers behave differently during training
+            # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
+            model.train()
 
-            combined_output = model(images)
-            
-            loss = criterion(combined_output, combined_labels)
-            
-            loss.backward()
-            optimizer.step()
+            # Reset the total loss for this epoch.
+            total_train_accuracy_disease = 0
+            total_train_accuracy_severity = 0
+            running_loss = 0.0
 
-            running_loss += loss.item()
-
-            logits_combined = combined_output.detach().cpu().numpy()
-            combined_label_ids = combined_labels.to('cpu').numpy()
-            
-            # Get disease and severity labels
-            labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
-            labels_disease = torch.tensor(labels_disease).to(device)
-            labels_severity = torch.tensor(labels_severity).to(device)
-
-            # Convert labels to one-hot encoding
-            labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
-            labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
-
-            # Split the combined logits into disease and severity parts
-            half_dim = logits_combined.shape[1] // 2
-            logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
-
-            total_train_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
-            total_train_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
-
-        avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
-        avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
-        print(" Train Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
-        print(" Train Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
-
-        run.log({
-            "loss": running_loss / len(train_data),
-            "train_accuracy_disease": avg_train_accuracy_disease,
-            "train_accuracy_severity": avg_train_accuracy_severity,
-        })
-
-        print("")
-        print("Running Validation...")
-
-        t0 = time.time()
-        model.eval()
-
-        total_val_accuracy_disease = 0
-        total_val_accuracy_severity = 0
-        total_val_loss = 0
-
-        for _, batch in enumerate(val_data):   
+            for step, batch in enumerate(train_data):
+                # Progress update every 4 batches
+                if step % 4 == 0 and not step == 0:
+                    # Calculate elapsed time in minutes
+                    elapsed = format_time(time.time() - t0)
+                    # Report progress.
+                    print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
                 
-            images = batch[0].to(device)
-            combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
-            
-            with torch.no_grad():
+                images = batch[0].to(device)
+                combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
+                
+                optimizer.zero_grad()
+
                 combined_output = model(images)
                 
-            loss = criterion(combined_output, combined_labels)
-            avg_val_loss += loss.item() / len(val_data)
+                loss = criterion(combined_output, combined_labels)
+                
+                loss.backward()
+                optimizer.step()
 
-            logits_combined = combined_output.detach().cpu().numpy()
-            combined_label_ids = combined_labels.to('cpu').numpy()
+                running_loss += loss.item()
+
+                logits_combined = combined_output.detach().cpu().numpy()
+                combined_label_ids = combined_labels.to('cpu').numpy()
+                
+                # Get disease and severity labels
+                labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
+                labels_disease = torch.tensor(labels_disease).to(device)
+                labels_severity = torch.tensor(labels_severity).to(device)
+
+                # Convert labels to one-hot encoding
+                labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
+                labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
+
+                # Split the combined logits into disease and severity parts
+                half_dim = logits_combined.shape[1] // 2
+                logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
+
+                total_train_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
+                total_train_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
+
+            print("Epoch {}/{} - Training: ".format(epoch + 1, epochs))
+
+            avg_loss = running_loss / len(train_data)
+            print("\tAverage training loss: {0:.2f}".format(avg_loss))
+            avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
+            avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
+            print("\tTrain Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
+            print("\tTrain Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
+
+            run.log({
+                "train_loss": avg_loss,
+                "train_accuracy_disease": avg_train_accuracy_disease,
+                "train_accuracy_severity": avg_train_accuracy_severity,
+            })
+
+            print("")
+            print("Running Validation...")
+
+            t0 = time.time()
+            model.eval()
+
+            total_val_accuracy_disease = 0
+            total_val_accuracy_severity = 0
+            total_val_loss = 0
+
+            for _, batch in enumerate(val_data):   
+                    
+                images = batch[0].to(device)
+                combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
+                
+                with torch.no_grad():
+                    combined_output = model(images)
+                    
+                loss = criterion(combined_output, combined_labels)
+                total_val_loss += loss.item()
+
+                logits_combined = combined_output.detach().cpu().numpy()
+                combined_label_ids = combined_labels.to('cpu').numpy()
+                
+                # Get disease and severity labels
+                labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
+                labels_disease = torch.tensor(labels_disease).to(device)
+                labels_severity = torch.tensor(labels_severity).to(device)
+                
+                # Convert labels to one-hot encoding
+                labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
+                labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
+
+                # Split the combined logits into disease and severity parts
+                half_dim = logits_combined.shape[1] // 2
+                logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
+
+                total_val_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
+                total_val_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
             
-            # Get disease and severity labels
-            labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
-            labels_disease = torch.tensor(labels_disease).to(device)
-            labels_severity = torch.tensor(labels_severity).to(device)
-            
-            # Convert labels to one-hot encoding
-            labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
-            labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
+            print("Epoch {}/{} - Validation: ".format(epoch + 1, epochs))
 
-            # Split the combined logits into disease and severity parts
-            half_dim = logits_combined.shape[1] // 2
-            logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
+            avg_val_loss = total_val_loss / len(val_data)
+            print("\tAverage validation loss: {0:.2f}".format(avg_val_loss))
 
-            total_val_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
-            total_val_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
-        
-        avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
-        avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
-        print(" Validation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
-        print(" Validation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
+            avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
+            avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
+            print("\tValidation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
+            print("\tValidation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy_disease,
-            "val_accuracy_severity": avg_val_accuracy_severity,
-        })
+            # Log metrics to wandb
+            run.log({
+                "val_loss": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy_disease,
+                "val_accuracy_severity": avg_val_accuracy_severity,
+            })
 
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), 'best_model.pt')
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), 'best_model.pt')
 
-        scheduler.step()
+            scheduler.step()
 
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
 
-    print("")
-    print("Training complete!")
+        print("")
+        print("Training complete!")
 
-    # Load the best state dictionary into a new model
-    best_model = DiseaseSeverityModel_CombinedV1(num_combined_labels)
-    best_model.load_state_dict(torch.load('best_model.pt'))
+        # Load the best state dictionary into a new model
+        best_model = DiseaseSeverityModel_CombinedV1(num_combined_labels)
+        best_model.load_state_dict(torch.load('best_model.pt'))
+        best_model.to(device)
 
-    return best_model
+        return best_model
 
 
-def run_experiment(args):
+
     # ------------------------------
     # ----- Data Preparation -------
     # ------------------------------
@@ -248,7 +259,8 @@ def run_experiment(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
     model = train(args_dict, train_data, val_data, test_data, device, run, full_dataset.reverse_label_mapping)
 
     # ------------------------------
