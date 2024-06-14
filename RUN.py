@@ -19,6 +19,8 @@ import torchvision.models as models
 from sklearn.metrics import classification_report
 import json
 
+
+
 #### utils.py
 
 animal_names = [
@@ -346,214 +348,216 @@ class SeverityModel(nn.Module):
         return x
 
 
-def train_separate(args, train_data, val_data, test_data, device, run):
-    disease_model = args.get("disease_model", DiseaseModel(num_disease_classes=4)).to(device)
-    severity_model = args.get("severity_model", SeverityModel(num_severity_levels=5)).to(device)
-    run.watch(disease_model)
-    run.watch(severity_model)
+def run_experiment_separate(args):
+    def train(args, train_data, val_data, test_data, device, run):
+        disease_model = args.get("disease_model", DiseaseModel(num_disease_classes=4)).to(device)
+        severity_model = args.get("severity_model", SeverityModel(num_severity_levels=5)).to(device)
+        run.watch(disease_model)
+        run.watch(severity_model)
 
-    disease_criterion = args.get("criterion", nn.CrossEntropyLoss())
-    disease_optimizer = args.get("optimizer", torch.optim.Adam(disease_model.parameters(), lr=args.get("lr", 0.001)))
+        disease_criterion = args.get("criterion", nn.CrossEntropyLoss())
+        disease_optimizer = args.get("optimizer", torch.optim.Adam(disease_model.parameters(), lr=args.get("lr", 0.001)))
 
-    severity_criterion = args.get("criterion", nn.CrossEntropyLoss())
-    severity_optimizer = args.get("optimizer", torch.optim.Adam(severity_model.parameters(), lr=args.get("lr", 0.001)))
+        severity_criterion = args.get("criterion", nn.CrossEntropyLoss())
+        severity_optimizer = args.get("optimizer", torch.optim.Adam(severity_model.parameters(), lr=args.get("lr", 0.001)))
 
-    avg_val_loss = 0
+        avg_val_loss = 0
 
-    # add a scheduler
-    disease_scheduler = StepLR(disease_optimizer, step_size=10, gamma=0.1)
-    severity_scheduler = StepLR(severity_optimizer, step_size=10, gamma=0.1)
+        # add a scheduler
+        disease_scheduler = StepLR(disease_optimizer, step_size=10, gamma=0.1)
+        severity_scheduler = StepLR(severity_optimizer, step_size=10, gamma=0.1)
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-    total_t0 = time.time()
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        total_t0 = time.time()
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-    for epoch in range(epochs):
-        # ========================================
-        #               Training
-        # ========================================
+        for epoch in range(epochs):
+            # ========================================
+            #               Training
+            # ========================================
 
-        # Perform one full pass over the training set.
+            # Perform one full pass over the training set.
 
-        print("")
-        print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
-        print('Training...')
+            print("")
+            print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
+            print('Training...')
 
-        # Measure how long the training epoch takes.
-        t0 = time.time()
+            # Measure how long the training epoch takes.
+            t0 = time.time()
 
-        # Put the model into training mode. Don't be mislead--the call to
-        # `train` just changes the *mode*, it doesn't *perform* the training.
-        # `dropout` and `batchnorm` layers behave differently during training
-        # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
-        disease_model.train()
-        severity_model.train()
+            # Put the model into training mode. Don't be mislead--the call to
+            # `train` just changes the *mode*, it doesn't *perform* the training.
+            # `dropout` and `batchnorm` layers behave differently during training
+            # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
+            disease_model.train()
+            severity_model.train()
 
-        # Reset the total loss for this epoch.
-        total_train_accuracy_disease = 0
-        total_train_accuracy_severity = 0
-        running_loss = 0.0
+            # Reset the total loss for this epoch.
+            total_train_accuracy_disease = 0
+            total_train_accuracy_severity = 0
+            running_loss = 0.0
 
-        # for images, disease_labels, severity_labels in train_data:
-        # For each batch of training data...
-        for step, batch in enumerate(train_data):
+            # for images, disease_labels, severity_labels in train_data:
+            # For each batch of training data...
+            for step, batch in enumerate(train_data):
 
-            # Progress update every 4 batches
-            if step % 4 == 0 and not step == 0:
-                # Calculate elapsed time in minutes
-                elapsed = format_time(time.time() - t0)
-                # Report progress.
-                print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
+                # Progress update every 4 batches
+                if step % 4 == 0 and not step == 0:
+                    # Calculate elapsed time in minutes
+                    elapsed = format_time(time.time() - t0)
+                    # Report progress.
+                    print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
 
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
-            severity_labels = batch[2].to(device)
-            # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+                images = batch[0].to(device)
+                disease_labels = batch[1].to(device)
+                severity_labels = batch[2].to(device)
+                # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
 
-            # Always clear any previously calculated gradients before performing a
-            # backward pass. PyTorch doesn't do this automatically because
-            # accumulating the gradients is "convenient while training RNNs".
-            # (source: https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch)
-            disease_optimizer.zero_grad()
-            severity_optimizer.zero_grad()
+                # Always clear any previously calculated gradients before performing a
+                # backward pass. PyTorch doesn't do this automatically because
+                # accumulating the gradients is "convenient while training RNNs".
+                # (source: https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch)
+                disease_optimizer.zero_grad()
+                severity_optimizer.zero_grad()
 
-            disease_output = disease_model(images)
-            severity_output_output = severity_model(images)
-
-            disease_loss = disease_criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            severity_loss = severity_criterion(severity_output, torch.argmax(severity_labels, dim=1))
-
-            loss = disease_loss + severity_loss
-            run.log({"loss": loss.item(), "val_loss": avg_val_loss})
-            loss.backward()
-            disease_optimizer.step()
-            severity_optimizer.step()
-            running_loss += loss.item()
-
-            logits_disease = disease_output.detach().cpu().numpy()
-            logits_severity = severity_output.detach().cpu().numpy()
-
-            disease_label_ids = disease_labels.to('cpu').numpy()
-            severity_label_ids = severity_labels.to('cpu').numpy()
-
-            total_train_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
-            total_train_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
-
-        avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
-        print(" Train Accuracy - Disease: {0:.2f}".format(avg_train_accuracy_disease))
-
-        avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
-        print(" Train Accuracy - Severity: {0:.2f}".format(avg_train_accuracy_severity))
-
-        run.log({
-            "loss": running_loss / len(train_data),
-            "train_accuracy_disease": avg_train_accuracy_disease,
-            "train_accuracy_severity": avg_train_accuracy_severity,
-        })
-
-        # ========================================
-        #               Validation
-        # ========================================
-        # After the completion of each training epoch, measure our performance on
-        # our validation set.
-
-        print("")
-        print("Running Validation...")
-
-        t0 = time.time()
-
-        # Put the model in evaluation mode--the dropout layers behave differently
-        # during evaluation.
-        disease_model.eval()
-        severity_model.eval()
-
-        # with torch.no_grad():
-        val_loss = 0.0
-        # for images, disease_labels, severity_labels in val_data:
-        # For each batch of training data...
-
-        total_val_accuracy_disease = 0
-        total_val_accuracy_severity = 0
-
-        for _, batch in enumerate(val_data):
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
-            severity_labels = batch[2].to(device)
-
-            # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
-            # Tell pytorch not to bother with constructing the compute graph during
-            # the forward pass, since this is only needed for backprop (training).
-            with torch.no_grad():
                 disease_output = disease_model(images)
                 severity_output = severity_model(images)
 
-            disease_loss = disease_criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            severity_loss = severity_criterion(severity_output, torch.argmax(severity_labels, dim=1))
-            val_loss += (disease_loss + severity_loss).item()
+                disease_loss = disease_criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                severity_loss = severity_criterion(severity_output, torch.argmax(severity_labels, dim=1))
 
-            logits_disease = disease_output.detach().cpu().numpy()
-            logits_severity = severity_output.detach().cpu().numpy()
+                loss = disease_loss + severity_loss
+                # run.log({"loss": loss.item(), "val_loss": avg_val_loss})
+                loss.backward()
+                disease_optimizer.step()
+                severity_optimizer.step()
+                running_loss += loss.item()
 
-            disease_label_ids = disease_labels.to('cpu').numpy()
-            severity_label_ids = severity_labels.to('cpu').numpy()
+                logits_disease = disease_output.detach().cpu().numpy()
+                logits_severity = severity_output.detach().cpu().numpy()
 
-            total_val_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
-            total_val_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
+                disease_label_ids = disease_labels.to('cpu').numpy()
+                severity_label_ids = severity_labels.to('cpu').numpy()
 
-        avg_val_loss = val_loss / len(val_data)
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {running_loss / len(train_data)}, Validation Loss: {avg_val_loss}")
+                total_train_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
+                total_train_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
+            
+            print("Epoch {}/{} - Training: ".format(epoch + 1, epochs))
+            avg_loss = running_loss / len(train_data)
+            print("\tAverage training loss: {0:.2f}".format(avg_loss))
+            avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
+            avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
+            print("\tTrain Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
+            print("\tTrain Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
 
-        avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
-        avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
+            run.log({
+                "train_loss": avg_loss,
+                "train_accuracy_disease": avg_train_accuracy_disease,
+                "train_accuracy_severity": avg_train_accuracy_severity,
+            })
 
-        print(" Validation Accuracy - Disease: {0:.2f}".format(avg_val_accuracy_disease))
-        print(" Validation Accuracy - Severity: {0:.2f}".format(avg_val_accuracy_severity))
+            # ========================================
+            #               Validation
+            # ========================================
+            # After the completion of each training epoch, measure our performance on
+            # our validation set.
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy_disease,
-            "val_accuracy_severity": avg_val_accuracy_severity,
-        })
+            print("")
+            print("Running Validation...")
 
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(disease_model.state_dict(), "disease_model.pth")  # Save the model
-            torch.save(severity_model.state_dict(), "severity_model.pth")  # Save the model
-            run.save("disease_model.pth")
-            run.save("severity_model.pth")
+            t0 = time.time()
 
-        # Perform early stopping
-        early_stopping(avg_val_loss, disease_model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+            # Put the model in evaluation mode--the dropout layers behave differently
+            # during evaluation.
+            disease_model.eval()
+            severity_model.eval()
 
-        # Measure how long the validation run took.
-        validation_time = format_time(time.time() - t0)
+            # with torch.no_grad():
+            val_loss = 0.0
+            # for images, disease_labels, severity_labels in val_data:
+            # For each batch of training data...
 
-        print("  Validation Loss: {0:.2f}".format(avg_val_loss))
-        print("  Validation took: {:}".format(validation_time))
+            total_val_accuracy_disease = 0
+            total_val_accuracy_severity = 0
 
-        disease_scheduler.step()
-        severity_scheduler.step()
+            for _, batch in enumerate(val_data):
+                images = batch[0].to(device)
+                disease_labels = batch[1].to(device)
+                severity_labels = batch[2].to(device)
 
-    # Load the best model
-    disease_model.load_state_dict(torch.load("disease_model.pth"))
-    severity_model.load_state_dict(torch.load("severity_model.pth"))
+                # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+                # Tell pytorch not to bother with constructing the compute graph during
+                # the forward pass, since this is only needed for backprop (training).
+                with torch.no_grad():
+                    disease_output = disease_model(images)
+                    severity_output = severity_model(images)
 
-    print("")
-    print("Training complete!")
+                disease_loss = disease_criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                severity_loss = severity_criterion(severity_output, torch.argmax(severity_labels, dim=1))
+                val_loss += (disease_loss + severity_loss).item()
 
-    print("Total training took {:} (h:mm:ss)".format(format_time(time.time() - total_t0)))
+                logits_disease = disease_output.detach().cpu().numpy()
+                logits_severity = severity_output.detach().cpu().numpy()
 
-    return disease_model, severity_model
+                disease_label_ids = disease_labels.to('cpu').numpy()
+                severity_label_ids = severity_labels.to('cpu').numpy()
 
+                total_val_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
+                total_val_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
 
-def run_experiment_separate(args):
+            print("Epoch {}/{} - Validation: ".format(epoch + 1, epochs))
+
+            avg_val_loss = val_loss / len(val_data)
+            print("\tAverage validation loss: {0:.2f}".format(avg_val_loss))
+
+            avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
+            avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
+            print("\tValidation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
+            print("\tValidation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
+
+            # Log metrics to wandb
+            run.log({
+                "val_loss": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy_disease,
+                "val_accuracy_severity": avg_val_accuracy_severity,
+            })
+
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(disease_model.state_dict(), "disease_model.pth")  # Save the model
+                torch.save(severity_model.state_dict(), "severity_model.pth")  # Save the model
+                run.save("disease_model.pth")
+                run.save("severity_model.pth")
+
+            # Perform early stopping
+            early_stopping(avg_val_loss, disease_model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+            # Measure how long the validation run took.
+            validation_time = format_time(time.time() - t0)
+
+            print(" Validation Loss: {0:.2f}".format(avg_val_loss))
+            print(" Validation took: {:}".format(validation_time))
+
+            disease_scheduler.step()
+            severity_scheduler.step()
+
+        # Load the best model
+        disease_model.load_state_dict(torch.load("disease_model.pth"))
+        severity_model.load_state_dict(torch.load("severity_model.pth"))
+
+        print("")
+        print("Training complete!")
+
+        print("Total training took {:} (h:mm:ss)".format(format_time(time.time() - total_t0)))
+
+        return disease_model, severity_model
+
     # ------------------------------
     # ----- Data Preparation -------
     # ------------------------------
@@ -563,7 +567,7 @@ def run_experiment_separate(args):
 
     transformations = args.transforms if hasattr(args, 'transforms') else transforms.Compose([])
 
-    name = args.name if hasattr(args, 'name') else "divergent_heads_classifier"
+    name = args.name if hasattr(args, 'name') else "separate_classifiers"
 
     full_dataset = DiaMOSDataset(csv_file=args.csv_file if hasattr(args, 'csv_file') else 'diaMOSPlant.csv',
                                  img_dir=args.img_dir if hasattr(args, 'img_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves',
@@ -591,8 +595,9 @@ def run_experiment_separate(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
-    disease_model, severity_model = train_separate(args_dict, train_data, val_data, test_data, device, run)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
+    disease_model, severity_model = train(args_dict, train_data, val_data, test_data, device, run)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -754,176 +759,208 @@ class DiseaseSeverityModel_CombinedResNet50(nn.Module):
         return x
 
 
-def train_combined(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
-    num_combined_labels = 20  # Adjust this according to your data
-    model = args.get("model", DiseaseSeverityModel_CombinedVGG(num_combined_labels))
-    model.to(device)
-    run.watch(model)
+class DiseaseSeverityModel_CombinedV1(nn.Module):
+    def __init__(self, num_combined_labels):
+        super(DiseaseSeverityModel_CombinedV1, self).__init__()
+        vgg19 = torch.hub.load('pytorch/vision:v0.6.0', 'vgg19', pretrained=True)
+        for param in vgg19.features.parameters(): param.requires_grad = False
+        self.features = vgg19.features
+        self.classifier = nn.Sequential(
+            nn.Linear(25088, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, num_combined_labels)
+        )
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())  
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
-    avg_val_loss = 0
-
-    # add a scheduler
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
-
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
-
-    early_stopping = EarlyStopping(patience=4, verbose=True)
-
-    # Training loop
-    for epoch in range(epochs):
-        # ========================================
-        #               Training
-        # ========================================
-
-        # Perform one full pass over the training set.
-
-        print("")
-        print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
-        print('Training...')
-        
-        # Measure how long the training epoch takes.
-        t0 = time.time()
-        
-        # Put the model into training mode. Don't be mislead--the call to
-        # `train` just changes the *mode*, it doesn't *perform* the training.
-        # `dropout` and `batchnorm` layers behave differently during training
-        # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
-        model.train()
-
-        # Reset the total loss for this epoch.
-        total_train_accuracy_disease = 0
-        total_train_accuracy_severity = 0
-        running_loss = 0.0
-
-        for step, batch in enumerate(train_data):
-            # Progress update every 4 batches
-            if step % 4 == 0 and not step == 0:
-                # Calculate elapsed time in minutes
-                elapsed = format_time(time.time() - t0)
-                # Report progress.
-                print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
-            
-            images = batch[0].to(device)
-            combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
-            
-            optimizer.zero_grad()
-
-            combined_output = model(images)
-            
-            loss = criterion(combined_output, combined_labels)
-            
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-
-            logits_combined = combined_output.detach().cpu().numpy()
-            combined_label_ids = combined_labels.to('cpu').numpy()
-            
-            # Get disease and severity labels
-            labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
-            labels_disease = torch.tensor(labels_disease).to(device)
-            labels_severity = torch.tensor(labels_severity).to(device)
-
-            # Convert labels to one-hot encoding
-            labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
-            labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
-
-            # Split the combined logits into disease and severity parts
-            half_dim = logits_combined.shape[1] // 2
-            logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
-
-            total_train_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
-            total_train_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
-
-        avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
-        avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
-        print(" Train Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
-        print(" Train Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
-
-        run.log({
-            "loss": running_loss / len(train_data),
-            "train_accuracy_disease": avg_train_accuracy_disease,
-            "train_accuracy_severity": avg_train_accuracy_severity,
-        })
-
-        print("")
-        print("Running Validation...")
-
-        t0 = time.time()
-        model.eval()
-
-        total_val_accuracy_disease = 0
-        total_val_accuracy_severity = 0
-        total_val_loss = 0
-
-        for _, batch in enumerate(val_data):   
-                
-            images = batch[0].to(device)
-            combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
-            
-            with torch.no_grad():
-                combined_output = model(images)
-                
-            loss = criterion(combined_output, combined_labels)
-            avg_val_loss += loss.item() / len(val_data)
-
-            logits_combined = combined_output.detach().cpu().numpy()
-            combined_label_ids = combined_labels.to('cpu').numpy()
-            
-            # Get disease and severity labels
-            labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
-            labels_disease = torch.tensor(labels_disease).to(device)
-            labels_severity = torch.tensor(labels_severity).to(device)
-            
-            # Convert labels to one-hot encoding
-            labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
-            labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
-
-            # Split the combined logits into disease and severity parts
-            half_dim = logits_combined.shape[1] // 2
-            logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
-
-            total_val_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
-            total_val_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
-        
-        avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
-        avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
-        print(" Validation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
-        print(" Validation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
-
-        # Log metrics to wandb
-        run.log({
-            "val_loss": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy_disease,
-            "val_accuracy_severity": avg_val_accuracy_severity,
-        })
-
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), 'best_model.pt')
-
-        scheduler.step()
-
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
-
-    print("")
-    print("Training complete!")
-
-    # Load the best state dictionary into a new model
-    best_model = args.get("model", DiseaseSeverityModel_CombinedVGG(num_combined_labels))
-    best_model.load_state_dict(torch.load('best_model.pt'))
-
-    return best_model
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        return x
 
 
 def run_experiment_combined(args):
+    def train(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
+        num_combined_labels = 20  # Adjust this according to your data
+        model = args.get("model", DiseaseSeverityModel_CombinedV1(num_combined_labels))
+        model.to(device)
+        run.watch(model)
+
+        criterion = args.get("criterion", nn.CrossEntropyLoss())  
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+        avg_val_loss = 0
+
+        # add a scheduler
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
+
+        early_stopping = EarlyStopping(patience=4, verbose=True)
+
+        # Training loop
+        for epoch in range(epochs):
+            # ========================================
+            #               Training
+            # ========================================
+
+            # Perform one full pass over the training set.
+
+            print("")
+            print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
+            print('Training...')
+            
+            # Measure how long the training epoch takes.
+            t0 = time.time()
+            
+            # Put the model into training mode. Don't be mislead--the call to
+            # `train` just changes the *mode*, it doesn't *perform* the training.
+            # `dropout` and `batchnorm` layers behave differently during training
+            # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
+            model.train()
+
+            # Reset the total loss for this epoch.
+            total_train_accuracy_disease = 0
+            total_train_accuracy_severity = 0
+            running_loss = 0.0
+
+            for step, batch in enumerate(train_data):
+                # Progress update every 4 batches
+                if step % 4 == 0 and not step == 0:
+                    # Calculate elapsed time in minutes
+                    elapsed = format_time(time.time() - t0)
+                    # Report progress.
+                    print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
+                
+                images = batch[0].to(device)
+                combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
+                
+                optimizer.zero_grad()
+
+                combined_output = model(images)
+                
+                loss = criterion(combined_output, combined_labels)
+                
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item()
+
+                logits_combined = combined_output.detach().cpu().numpy()
+                combined_label_ids = combined_labels.to('cpu').numpy()
+                
+                # Get disease and severity labels
+                labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
+                labels_disease = torch.tensor(labels_disease).to(device)
+                labels_severity = torch.tensor(labels_severity).to(device)
+
+                # Convert labels to one-hot encoding
+                labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
+                labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
+
+                # Split the combined logits into disease and severity parts
+                half_dim = logits_combined.shape[1] // 2
+                logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
+
+                total_train_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
+                total_train_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
+
+            print("Epoch {}/{} - Training: ".format(epoch + 1, epochs))
+
+            avg_loss = running_loss / len(train_data)
+            print("\tAverage training loss: {0:.2f}".format(avg_loss))
+            avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
+            avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
+            print("\tTrain Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
+            print("\tTrain Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
+
+            run.log({
+                "train_loss": avg_loss,
+                "train_accuracy_disease": avg_train_accuracy_disease,
+                "train_accuracy_severity": avg_train_accuracy_severity,
+            })
+
+            print("")
+            print("Running Validation...")
+
+            t0 = time.time()
+            model.eval()
+
+            total_val_accuracy_disease = 0
+            total_val_accuracy_severity = 0
+            total_val_loss = 0
+
+            for _, batch in enumerate(val_data):   
+                    
+                images = batch[0].to(device)
+                combined_labels = batch[1].to(device)  # Assuming combined labels are at index 1
+                
+                with torch.no_grad():
+                    combined_output = model(images)
+                    
+                loss = criterion(combined_output, combined_labels)
+                total_val_loss += loss.item()
+
+                logits_combined = combined_output.detach().cpu().numpy()
+                combined_label_ids = combined_labels.to('cpu').numpy()
+                
+                # Get disease and severity labels
+                labels_disease, labels_severity = zip(*[reverse_label_mapping[label] for label in combined_label_ids])
+                labels_disease = torch.tensor(labels_disease).to(device)
+                labels_severity = torch.tensor(labels_severity).to(device)
+                
+                # Convert labels to one-hot encoding
+                labels_disease_one_hot = one_hot_encode(labels_disease.cpu().numpy(), num_combined_labels)
+                labels_severity_one_hot = one_hot_encode(labels_severity.cpu().numpy(), num_combined_labels)
+
+                # Split the combined logits into disease and severity parts
+                half_dim = logits_combined.shape[1] // 2
+                logits_disease, logits_severity = logits_combined[:, :half_dim], logits_combined[:, half_dim:]
+
+                total_val_accuracy_disease += flat_accuracy(logits_disease, labels_disease_one_hot)
+                total_val_accuracy_severity += flat_accuracy(logits_severity, labels_severity_one_hot)
+            
+            print("Epoch {}/{} - Validation: ".format(epoch + 1, epochs))
+
+            avg_val_loss = total_val_loss / len(val_data)
+            print("\tAverage validation loss: {0:.2f}".format(avg_val_loss))
+
+            avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
+            avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
+            print("\tValidation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
+            print("\tValidation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
+
+            # Log metrics to wandb
+            run.log({
+                "val_loss": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy_disease,
+                "val_accuracy_severity": avg_val_accuracy_severity,
+            })
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), 'best_model.pt')
+
+            scheduler.step()
+
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        print("")
+        print("Training complete!")
+
+        # Load the best state dictionary into a new model
+        best_model = DiseaseSeverityModel_CombinedV1(num_combined_labels)
+        best_model.load_state_dict(torch.load('best_model.pt'))
+        best_model.to(device)
+
+        return best_model
+
 
     # ------------------------------
     # ----- Data Preparation -------
@@ -962,8 +999,9 @@ def run_experiment_combined(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
-    model = train_combined(args_dict, train_data, val_data, test_data, device, run, full_dataset.reverse_label_mapping)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
+    model = train(args_dict, train_data, val_data, test_data, device, run, full_dataset.reverse_label_mapping)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1074,7 +1112,6 @@ def run_experiment_combined(args):
 #### divergent_heads_classifier.py
 
 
-
 class DiseaseSeverityModelVGG(nn.Module):
     def __init__(self, num_disease_classes, num_severity_levels):
         super(DiseaseSeverityModelVGG, self).__init__()
@@ -1147,204 +1184,239 @@ class DiseaseSeverityModelResNet50(nn.Module):
         return disease_output, severity_output
 
 
-def train_divergent(args, train_data, val_data, test_data, device, run):    
-    model = args.get("model", DiseaseSeverityModelVGG(num_disease_classes=4, num_severity_levels=5))
-    model.to(device)
-    run.watch(model)
+class DiseaseSeverityModelV1(nn.Module):
+    def __init__(self, num_disease_classes, num_severity_levels):
+        super(DiseaseSeverityModelV1, self).__init__()
+        vgg19 = torch.hub.load('pytorch/vision:v0.6.0', 'vgg19', pretrained=True)
+        for param in vgg19.features.parameters(): param.requires_grad = False
+        self.features = vgg19.features
+        self.avgpool = vgg19.avgpool
+        self.classifier = nn.Sequential(
+            nn.Linear(512 * 7 * 7, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+        )
+        self.disease_classifier = nn.Sequential(
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Linear(4096, num_disease_classes),
+        )
+        self.severity_classifier = nn.Sequential(
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Linear(4096, num_severity_levels),
+        )
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())  
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
-    avg_val_loss = 0
-
-    # add a scheduler
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
-
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
-
-    total_t0 = time.time()
-    early_stopping = EarlyStopping(patience=4, verbose=True)
-
-    for epoch in range(epochs):
-        # ========================================
-        #               Training
-        # ========================================
-
-        # Perform one full pass over the training set.
-
-        print("")
-        print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
-        print('Training...')
-        
-        # Measure how long the training epoch takes.
-        t0 = time.time()
-        
-        # Put the model into training mode. Don't be mislead--the call to
-        # `train` just changes the *mode*, it doesn't *perform* the training.
-        # `dropout` and `batchnorm` layers behave differently during training
-        # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
-        model.train()
-        
-        # Reset the total loss for this epoch.
-        total_train_accuracy_disease = 0
-        total_train_accuracy_severity = 0
-        running_loss = 0.0
-        
-        # for images, disease_labels, severity_labels in train_data:
-        # For each batch of training data...
-        for step, batch in enumerate(train_data):
-            
-            # Progress update every 4 batches
-            if step % 4 == 0 and not step == 0:
-                # Calculate elapsed time in minutes
-                elapsed = format_time(time.time() - t0)
-                # Report progress.
-                print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
-            
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
-            severity_labels = batch[2].to(device)
-            # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
-            
-            # Always clear any previously calculated gradients before performing a
-            # backward pass. PyTorch doesn't do this automatically because
-            # accumulating the gradients is "convenient while training RNNs".
-            # (source: https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch)
-            optimizer.zero_grad()
-            
-            disease_output, severity_output = model(images)
-            
-            disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-            
-            loss = disease_loss + severity_loss
-            run.log({"loss": loss.item(), "val_loss": avg_val_loss})
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-            
-            
-            logits_disease = disease_output.detach().cpu().numpy()
-            logits_severity = severity_output.detach().cpu().numpy()
-            
-            disease_label_ids = disease_labels.to('cpu').numpy()
-            severity_label_ids = severity_labels.to('cpu').numpy()
-            
-            total_train_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
-            total_train_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
-
-
-        avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
-        print(" Train Accuracy - Disease: {0:.2f}".format(avg_train_accuracy_disease))
-            
-        avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
-        print(" Train Accuracy - Severity: {0:.2f}".format(avg_train_accuracy_severity))
-        
-        run.log({
-            "loss": running_loss / len(train_data),
-            "train_accuracy_disease": avg_train_accuracy_disease,
-            "train_accuracy_severity": avg_train_accuracy_severity,
-        })
-
-        # ========================================
-        #               Validation
-        # ========================================
-        # After the completion of each training epoch, measure our performance on
-        # our validation set.
-
-        print("")
-        print("Running Validation...")
-        
-        t0 = time.time()
-
-        # Put the model in evaluation mode--the dropout layers behave differently
-        # during evaluation.
-        model.eval()
-        
-        # with torch.no_grad():
-        val_loss = 0.0
-        # for images, disease_labels, severity_labels in val_data:
-        # For each batch of training data...
-
-        total_val_accuracy_disease = 0
-        total_val_accuracy_severity = 0
-
-        for _, batch in enumerate(val_data):   
-                
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
-            severity_labels = batch[2].to(device)
-            
-            # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
-            # Tell pytorch not to bother with constructing the compute graph during
-            # the forward pass, since this is only needed for backprop (training).
-            with torch.no_grad():
-                disease_output, severity_output = model(images)
-                
-            disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-            val_loss += (disease_loss + severity_loss).item()
-
-            logits_disease = disease_output.detach().cpu().numpy()
-            logits_severity = severity_output.detach().cpu().numpy()
-            
-            disease_label_ids = disease_labels.to('cpu').numpy()
-            severity_label_ids = severity_labels.to('cpu').numpy()
-            
-            total_val_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
-            total_val_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
-
-
-        avg_val_loss = val_loss / len(val_data)
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss / len(train_data)}, Validation Loss: {avg_val_loss}")
-        
-        avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
-        avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
-
-        print(" Validation Accuracy - Disease: {0:.2f}".format(avg_val_accuracy_disease))
-        print(" Validation Accuracy - Severity: {0:.2f}".format(avg_val_accuracy_severity))
-
-        # Log metrics to wandb
-        run.log({
-            "val_loss": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy_disease,
-            "val_accuracy_severity": avg_val_accuracy_severity,
-        })
-        
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "disease_severity_model.pth")  # Save the model
-            run.save("disease_severity_model.pth")
-
-        # Perform early stopping
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
-        
-        # Measure how long the validation run took.
-        validation_time = format_time(time.time() - t0)
-        
-        print("  Validation Loss: {0:.2f}".format(avg_val_loss))
-        print("  Validation took: {:}".format(validation_time))
-
-
-        scheduler.step()
-
-
-    # Load the best model
-    model.load_state_dict(torch.load("disease_severity_model.pth"))
-
-    print("")
-    print("Training complete!")
-
-    print("Total training took {:} (h:mm:ss)".format(format_time(time.time()-total_t0)))
-
-    return model
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        disease_output = self.disease_classifier(x)
+        severity_output = self.severity_classifier(x)
+        return disease_output, severity_output
 
 
 def run_experiment_divergent(args):
+    def train(args, train_data, val_data, test_data, device, run):    
+        model = args.get("model", DiseaseSeverityModelV1(num_disease_classes=4, num_severity_levels=5))
+        model.to(device)
+        run.watch(model)
+
+        criterion = args.get("criterion", nn.CrossEntropyLoss())  
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+        avg_val_loss = 0
+
+        # add a scheduler
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
+
+        total_t0 = time.time()
+        early_stopping = EarlyStopping(patience=4, verbose=True)
+
+        for epoch in range(epochs):
+            # ========================================
+            #               Training
+            # ========================================
+
+            # Perform one full pass over the training set.
+
+            print("")
+            print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
+            print('Training...')
+            
+            # Measure how long the training epoch takes.
+            t0 = time.time()
+            
+            # Put the model into training mode. Don't be mislead--the call to
+            # `train` just changes the *mode*, it doesn't *perform* the training.
+            # `dropout` and `batchnorm` layers behave differently during training
+            # vs. test (source: https://stackoverflow.com/questimport gensim.downloader as api
+            model.train()
+            
+            # Reset the total loss for this epoch.
+            total_train_accuracy_disease = 0
+            total_train_accuracy_severity = 0
+            running_loss = 0.0
+            
+            # for images, disease_labels, severity_labels in train_data:
+            # For each batch of training data...
+            for step, batch in enumerate(train_data):
+                
+                # Progress update every 4 batches
+                if step % 4 == 0 and not step == 0:
+                    # Calculate elapsed time in minutes
+                    elapsed = format_time(time.time() - t0)
+                    # Report progress.
+                    print('  Batch {:>5,}  of  {:>5,}.    Elapsed: {:}.'.format(step, len(train_data), elapsed))
+                
+                images = batch[0].to(device)
+                disease_labels = batch[1].to(device)
+                severity_labels = batch[2].to(device)
+                # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+                
+                # Always clear any previously calculated gradients before performing a
+                # backward pass. PyTorch doesn't do this automatically because
+                # accumulating the gradients is "convenient while training RNNs".
+                # (source: https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch)
+                optimizer.zero_grad()
+                
+                disease_output, severity_output = model(images)
+                
+                disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
+                
+                loss = disease_loss + severity_loss
+                # run.log({"loss": loss.item(), "val_loss": avg_val_loss})
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item()
+                
+                
+                logits_disease = disease_output.detach().cpu().numpy()
+                logits_severity = severity_output.detach().cpu().numpy()
+                
+                disease_label_ids = disease_labels.to('cpu').numpy()
+                severity_label_ids = severity_labels.to('cpu').numpy()
+                
+                total_train_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
+                total_train_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
+
+            print("Epoch {}/{} - Training: ".format(epoch + 1, epochs))
+            avg_loss = running_loss / len(train_data)
+            print("\tAverage training loss: {0:.2f}".format(avg_loss))
+            avg_train_accuracy_disease = total_train_accuracy_disease / len(train_data)
+            avg_train_accuracy_severity = total_train_accuracy_severity / len(train_data)
+            print("\tTrain Accuracy Disease: {0:.2f}".format(avg_train_accuracy_disease))
+            print("\tTrain Accuracy Severity: {0:.2f}".format(avg_train_accuracy_severity))
+    
+            run.log({
+                "train_loss": avg_loss,
+                "train_accuracy_disease": avg_train_accuracy_disease,
+                "train_accuracy_severity": avg_train_accuracy_severity,
+            })
+
+            # ========================================
+            #               Validation
+            # ========================================
+            # After the completion of each training epoch, measure our performance on
+            # our validation set.
+
+            print("")
+            print("Running Validation...")
+            
+            t0 = time.time()
+
+            # Put the model in evaluation mode--the dropout layers behave differently
+            # during evaluation.
+            model.eval()
+            
+            # with torch.no_grad():
+            total_val_loss = 0.0
+            # for images, disease_labels, severity_labels in val_data:
+            # For each batch of training data...
+
+            total_val_accuracy_disease = 0
+            total_val_accuracy_severity = 0
+
+            for _, batch in enumerate(val_data):   
+                    
+                images = batch[0].to(device)
+                disease_labels = batch[1].to(device)
+                severity_labels = batch[2].to(device)
+                
+                # images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+                # Tell pytorch not to bother with constructing the compute graph during
+                # the forward pass, since this is only needed for backprop (training).
+                with torch.no_grad():
+                    disease_output, severity_output = model(images)
+                    
+                disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
+                total_val_loss += (disease_loss + severity_loss).item()
+
+                logits_disease = disease_output.detach().cpu().numpy()
+                logits_severity = severity_output.detach().cpu().numpy()
+                
+                disease_label_ids = disease_labels.to('cpu').numpy()
+                severity_label_ids = severity_labels.to('cpu').numpy()
+                
+                total_val_accuracy_disease += flat_accuracy(logits_disease, disease_label_ids)
+                total_val_accuracy_severity += flat_accuracy(logits_severity, severity_label_ids)
+
+            print("Epoch {}/{} - Validation: ".format(epoch + 1, epochs))
+
+            avg_val_loss = total_val_loss / len(val_data)
+            print("\tAverage validation loss: {0:.2f}".format(avg_val_loss))
+
+            avg_val_accuracy_disease = total_val_accuracy_disease / len(val_data)
+            avg_val_accuracy_severity = total_val_accuracy_severity / len(val_data)
+            print("\tValidation Accuracy Disease: {0:.2f}".format(avg_val_accuracy_disease))
+            print("\tValidation Accuracy Severity: {0:.2f}".format(avg_val_accuracy_severity))
+            
+            # Log metrics to wandb
+            run.log({
+                "val_loss": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy_disease,
+                "val_accuracy_severity": avg_val_accuracy_severity,
+            })
+            
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), "disease_severity_model.pth")  # Save the model
+                run.save("disease_severity_model.pth")
+
+            # Perform early stopping
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+            
+            # Measure how long the validation run took.
+            validation_time = format_time(time.time() - t0)
+            
+            # print("  Validation Loss: {0:.2f}".format(avg_val_loss))
+            print("\tValidation took: {:}".format(validation_time))
+
+            scheduler.step()
+
+
+        # Load the best model
+        model.load_state_dict(torch.load("disease_severity_model.pth"))
+
+        print("")
+        print("Training complete!")
+
+        print("Total training took {:} (h:mm:ss)".format(format_time(time.time()-total_t0)))
+
+        return model
+    
     
     # ------------------------------
     # ----- Data Preparation -------
@@ -1383,8 +1455,9 @@ def run_experiment_divergent(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
-    model = train_divergent(args_dict, train_data, val_data, test_data, device, run)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
+    model = train(args_dict, train_data, val_data, test_data, device, run)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1486,7 +1559,6 @@ def run_experiment_divergent(args):
     wandb.join()
 
 
-
 #### --------------------------------------------
 #### freeze_training_disease_first.py
 
@@ -1526,186 +1598,196 @@ class DiseaseSeverityModel_Freeze_DiseaseFirst(nn.Module):
         return disease_output, severity_output
 
 
-def train_freeze_disease(args, train_data, val_data, test_data, device, run):
-    # Initialize the model
-    model = args.get("model", DiseaseSeverityModel_Freeze_DiseaseFirst(num_disease_classes=4, num_severity_levels=5))
-    model.to(device)
-    run.watch(model)
+def run_experiment_freeze_disease(args):
+    def train(args, train_data, val_data, test_data, device, run):
+        # Initialize the model
+        model = args.get("model", DiseaseSeverityModel_Freeze_DiseaseFirst(num_disease_classes=4, num_severity_levels=5))
+        model.to(device)
+        run.watch(model)
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+        criterion = args.get("criterion", nn.CrossEntropyLoss())
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
 
-    # First train backbone + disease classification head
-    for param in model.severity_classifier.parameters():
-        param.requires_grad = False
+        # First train backbone + disease classification head
+        for param in model.severity_classifier.parameters():
+            param.requires_grad = False
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-    # Train disease first
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        total_train_accuracy = 0
-        for step, batch in enumerate(train_data):
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
-
-            optimizer.zero_grad()
-            disease_output, _ = model(images)
-            disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            disease_loss.backward()
-            optimizer.step()
-            running_loss += disease_loss.item()
-
-            # Calculate accuracy
-            logits = disease_output.detach().cpu().numpy()
-            label_ids = disease_labels.to('cpu').numpy()
-            total_train_accuracy += flat_accuracy(logits, label_ids)
-
-        avg_train_loss = running_loss / len(train_data)
-        avg_train_accuracy = total_train_accuracy / len(train_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Training Loss - Disease: {avg_train_loss}, Training Accuracy - Disease: {avg_train_accuracy}")
-
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        total_val_accuracy = 0
-        with torch.no_grad():
-            for batch in val_data:
+        # Train disease first
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            total_train_accuracy = 0
+            for step, batch in enumerate(train_data):
                 images = batch[0].to(device)
                 disease_labels = batch[1].to(device)
+
+                optimizer.zero_grad()
                 disease_output, _ = model(images)
                 disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-                val_loss += disease_loss.item()
+                disease_loss.backward()
+                optimizer.step()
+                running_loss += disease_loss.item()
 
                 # Calculate accuracy
                 logits = disease_output.detach().cpu().numpy()
                 label_ids = disease_labels.to('cpu').numpy()
-                total_val_accuracy += flat_accuracy(logits, label_ids)
+                total_train_accuracy += flat_accuracy(logits, label_ids)
 
-        avg_val_loss = val_loss / len(val_data)
-        avg_val_accuracy = total_val_accuracy / len(val_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Validation Loss - Disease: {avg_val_loss}, Validation Accuracy - Disease: {avg_val_accuracy}")
+            avg_train_loss = running_loss / len(train_data)
+            avg_train_accuracy = total_train_accuracy / len(train_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Training Loss - Disease: {avg_train_loss}, Training Accuracy - Disease: {avg_train_accuracy}")
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss_disease": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy,
-        })
+            run.log({
+                "train_loss_disease": avg_train_loss,
+                "train_accuracy_disease": avg_train_accuracy,
+            })
 
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "disease_first_severity_model_frozen.pth")  # Save the model
-            run.save("disease_first_severity_model_frozen.pth")
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            total_val_accuracy = 0
+            with torch.no_grad():
+                for batch in val_data:
+                    images = batch[0].to(device)
+                    disease_labels = batch[1].to(device)
+                    disease_output, _ = model(images)
+                    disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                    val_loss += disease_loss.item()
 
-        # Early stopping
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+                    # Calculate accuracy
+                    logits = disease_output.detach().cpu().numpy()
+                    label_ids = disease_labels.to('cpu').numpy()
+                    total_val_accuracy += flat_accuracy(logits, label_ids)
 
-    # Train severity second
+            avg_val_loss = val_loss / len(val_data)
+            avg_val_accuracy = total_val_accuracy / len(val_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Validation Loss - Disease: {avg_val_loss}, Validation Accuracy - Disease: {avg_val_accuracy}")
 
-    # Freeze all the layers except the severity classifier
-    for param in model.features.parameters():
-        param.requires_grad = False
-    for param in model.avgpool.parameters():
-        param.requires_grad = False
-    for param in model.classifier.parameters():
-        param.requires_grad = False
-    for param in model.disease_classifier.parameters():
-        param.requires_grad = False
+            # Log metrics to wandb
+            run.log({
+                "val_loss_disease": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy,
+            })
 
-    # Unfreeze the severity classifier
-    for param in model.severity_classifier.parameters():
-        param.requires_grad = True
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), "disease_first_severity_model_frozen.pth")  # Save the model
+                run.save("disease_first_severity_model_frozen.pth")
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+            # Early stopping
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        # Train severity second
 
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        # Freeze all the layers except the severity classifier
+        for param in model.features.parameters():
+            param.requires_grad = False
+        for param in model.avgpool.parameters():
+            param.requires_grad = False
+        for param in model.classifier.parameters():
+            param.requires_grad = False
+        for param in model.disease_classifier.parameters():
+            param.requires_grad = False
 
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        total_train_accuracy = 0
-        for step, batch in enumerate(train_data):
-            images = batch[0].to(device)
-            severity_labels = batch[2].to(device)
+        # Unfreeze the severity classifier
+        for param in model.severity_classifier.parameters():
+            param.requires_grad = True
 
-            optimizer.zero_grad()
-            _, severity_output = model(images)
-            severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-            severity_loss.backward()
-            optimizer.step()
-            running_loss += severity_loss.item()
+        criterion = args.get("criterion", nn.CrossEntropyLoss())
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
 
-            # Calculate accuracy
-            logits = severity_output.detach().cpu().numpy()
-            label_ids = severity_labels.to('cpu').numpy()
-            total_train_accuracy += flat_accuracy(logits, label_ids)
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-        avg_train_loss = running_loss / len(train_data)
-        avg_train_accuracy = total_train_accuracy / len(train_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Training Loss - Severity: {avg_train_loss}, Training Accuracy - Severity: {avg_train_accuracy}")
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        total_val_accuracy = 0
-        with torch.no_grad():
-            for batch in val_data:
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            total_train_accuracy = 0
+            for step, batch in enumerate(train_data):
                 images = batch[0].to(device)
                 severity_labels = batch[2].to(device)
+
+                optimizer.zero_grad()
                 _, severity_output = model(images)
                 severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-                val_loss += severity_loss.item()
+                severity_loss.backward()
+                optimizer.step()
+                running_loss += severity_loss.item()
 
                 # Calculate accuracy
                 logits = severity_output.detach().cpu().numpy()
                 label_ids = severity_labels.to('cpu').numpy()
-                total_val_accuracy += flat_accuracy(logits, label_ids)
+                total_train_accuracy += flat_accuracy(logits, label_ids)
 
-        avg_val_loss = val_loss / len(val_data)
-        avg_val_accuracy = total_val_accuracy / len(val_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Validation Loss - Severity: {avg_val_loss}, Validation Accuracy - Severity: {avg_val_accuracy}")
+            avg_train_loss = running_loss / len(train_data)
+            avg_train_accuracy = total_train_accuracy / len(train_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Training Loss - Severity: {avg_train_loss}, Training Accuracy - Severity: {avg_train_accuracy}")
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss_severity": avg_val_loss,
-            "val_accuracy_severity": avg_val_accuracy,
-        })
+            run.log({
+                "train_loss_severity": avg_train_loss,
+                "train_accuracy_severity": avg_train_accuracy,
+            })
 
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "disease_first_severity_model_frozen.pth")  # Save the model
-            run.save("disease_first_severity_model_frozen.pth")
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            total_val_accuracy = 0
+            with torch.no_grad():
+                for batch in val_data:
+                    images = batch[0].to(device)
+                    severity_labels = batch[2].to(device)
+                    _, severity_output = model(images)
+                    severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
+                    val_loss += severity_loss.item()
 
-        # Early stopping
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+                    # Calculate accuracy
+                    logits = severity_output.detach().cpu().numpy()
+                    label_ids = severity_labels.to('cpu').numpy()
+                    total_val_accuracy += flat_accuracy(logits, label_ids)
 
-    print("")
-    print("Training complete!")
+            avg_val_loss = val_loss / len(val_data)
+            avg_val_accuracy = total_val_accuracy / len(val_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Validation Loss - Severity: {avg_val_loss}, Validation Accuracy - Severity: {avg_val_accuracy}")
 
-    return model
+            # Log metrics to wandb
+            run.log({
+                "val_loss_severity": avg_val_loss,
+                "val_accuracy_severity": avg_val_accuracy,
+            })
+
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), "disease_first_severity_model_frozen.pth")  # Save the model
+                run.save("disease_first_severity_model_frozen.pth")
+
+            # Early stopping
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        print("")
+        print("Training complete!")
+
+        return model
 
 
-def run_experiment_freeze_disease(args):
     # ------------------------------
     # ----- Data Preparation -------
     # ------------------------------
@@ -1746,8 +1828,9 @@ def run_experiment_freeze_disease(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
-    model = train_freeze_disease(args_dict, train_data, val_data, test_data, device, run)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
+    model = train(args_dict, train_data, val_data, test_data, device, run)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1761,12 +1844,12 @@ def run_experiment_freeze_disease(args):
     total_severity_correct = 0
     total_samples = 0
 
-    # Initialize lists to store correctly classified images (to print them in the next cell)
-    correct_images = []
-    correct_disease_labels = []
-    correct_severity_labels = []
-    correct_disease_predictions = []
-    correct_severity_predictions = []
+    # # Initialize lists to store correctly classified images (to print them in the next cell)
+    # correct_images = []
+    # correct_disease_labels = []
+    # correct_severity_labels = []
+    # correct_disease_predictions = []
+    # correct_severity_predictions = []
 
     all_disease_labels = []
     all_disease_predictions = []
@@ -1774,40 +1857,38 @@ def run_experiment_freeze_disease(args):
     all_severity_predictions = []
 
     with torch.no_grad():
-        for images, labels in test_data:
-            images, labels = images.to(device), labels.to(device)
-            output = model(images)
-
-            # Split labels into disease and severity
-            disease_labels = labels // 4  # Assuming there are 4 severity levels
-            severity_labels = labels % 4  # Assuming there are 4 severity levels
-
-            # Classification
-            _, predicted = torch.max(output, 1)
-            disease_predicted = predicted // 4  # Assuming there are 4 severity levels
-            severity_predicted = predicted % 4  # Assuming there are 4 severity levels
-
-            disease_correct = (disease_predicted == disease_labels)
+        for images, disease_labels, severity_labels in test_data:
+            images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+            disease_output, severity_output = model(images)
+            
+            # Disease classification
+            _, disease_predicted = torch.max(disease_output, 1)
+            disease_correct = (disease_predicted == torch.argmax(disease_labels, dim=1))
             total_disease_correct += disease_correct.sum().item()
-
-            severity_correct = (severity_predicted == severity_labels)
+            
+            # Severity classification
+            _, severity_predicted = torch.max(severity_output, 1)
+            severity_correct = (severity_predicted == torch.argmax(severity_labels, dim=1))
             total_severity_correct += severity_correct.sum().item()
-
+            
             total_samples += images.size(0)
-
+            
             # Find indices of correctly classified images
-            correct_indices = (disease_correct & severity_correct).nonzero().squeeze()
+            # correct_indices = (disease_correct & severity_correct).nonzero().squeeze()
+
+            # # Find indices of correctly classified images
+            # correct_indices = (disease_correct & severity_correct).nonzero().squeeze()
 
             # Check if correct_indices is a scalar
-            if correct_indices.dim() == 0:
-                correct_indices = [correct_indices.item()]
+            # if correct_indices.dim() == 0:
+            #     correct_indices = [correct_indices.item()]
 
-            # Append correctly classified images and their labels/predictions
-            correct_images.extend(images[correct_indices].cpu().numpy())
-            correct_disease_labels.extend(disease_labels[correct_indices].cpu().numpy())
-            correct_severity_labels.extend(severity_labels[correct_indices].cpu().numpy())
-            correct_disease_predictions.extend(disease_predicted[correct_indices].cpu().numpy())
-            correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
+            # # Append correctly classified images and their labels/predictions
+            # correct_images.extend(images[correct_indices].cpu().numpy())
+            # correct_disease_labels.extend(disease_labels[correct_indices].cpu().numpy())
+            # correct_severity_labels.extend(severity_labels[correct_indices].cpu().numpy())
+            # correct_disease_predictions.extend(disease_predicted[correct_indices].cpu().numpy())
+            # correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
 
             # Append all disease labels and predictions
             all_disease_labels.extend(disease_labels.cpu().numpy())
@@ -1854,6 +1935,7 @@ def run_experiment_freeze_disease(args):
     wandb.join()
 
 
+
 #### --------------------------------------------
 #### freeze_training_severity_first.py
 
@@ -1894,186 +1976,196 @@ class DiseaseSeverityModel_Freeze_SeverityFirst(nn.Module):
         return disease_output, severity_output
 
 
-def train_freeze_severity(args, train_data, val_data, test_data, device, run):
-    # Initialize the model
-    model = args.get("model", DiseaseSeverityModel_Freeze_SeverityFirst(num_disease_classes=4, num_severity_levels=5))
-    model.to(device)
-    run.watch(model)
+def run_experiment_freeze_severity(args):
+    def train(args, train_data, val_data, test_data, device, run):
+        # Initialize the model
+        model = args.get("model", DiseaseSeverityModel_Freeze_SeverityFirst(num_disease_classes=4, num_severity_levels=5))
+        model.to(device)
+        run.watch(model)
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+        criterion = args.get("criterion", nn.CrossEntropyLoss())
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
 
-    # First train backbone + severity classification head
-    for param in model.disease_classifier.parameters():
-        param.requires_grad = False
+        # First train backbone + severity classification head
+        for param in model.disease_classifier.parameters():
+            param.requires_grad = False
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-    # Train severity first
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        total_train_accuracy = 0
-        for step, batch in enumerate(train_data):
-            images = batch[0].to(device)
-            severity_labels = batch[2].to(device)
-
-            optimizer.zero_grad()
-            _, severity_output = model(images)
-            severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-            severity_loss.backward()
-            optimizer.step()
-            running_loss += severity_loss.item()
-
-            # Calculate accuracy
-            logits = severity_output.detach().cpu().numpy()
-            label_ids = severity_labels.to('cpu').numpy()
-            total_train_accuracy += flat_accuracy(logits, label_ids)
-
-        avg_train_loss = running_loss / len(train_data)
-        avg_train_accuracy = total_train_accuracy / len(train_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Training Loss - Severity: {avg_train_loss}, Training Accuracy - Severity: {avg_train_accuracy}")
-
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        total_val_accuracy = 0
-        with torch.no_grad():
-            for batch in val_data:
+        # Train severity first
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            total_train_accuracy = 0
+            for step, batch in enumerate(train_data):
                 images = batch[0].to(device)
                 severity_labels = batch[2].to(device)
+
+                optimizer.zero_grad()
                 _, severity_output = model(images)
                 severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
-                val_loss += severity_loss.item()
+                severity_loss.backward()
+                optimizer.step()
+                running_loss += severity_loss.item()
 
                 # Calculate accuracy
                 logits = severity_output.detach().cpu().numpy()
                 label_ids = severity_labels.to('cpu').numpy()
-                total_val_accuracy += flat_accuracy(logits, label_ids)
+                total_train_accuracy += flat_accuracy(logits, label_ids)
 
-        avg_val_loss = val_loss / len(val_data)
-        avg_val_accuracy = total_val_accuracy / len(val_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Validation Loss - Severity: {avg_val_loss}, Validation Accuracy - Severity: {avg_val_accuracy}")
+            avg_train_loss = running_loss / len(train_data)
+            avg_train_accuracy = total_train_accuracy / len(train_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Training Loss - Severity: {avg_train_loss}, Training Accuracy - Severity: {avg_train_accuracy}")
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss_severity": avg_val_loss,
-            "val_accuracy_severity": avg_val_accuracy,
-        })
+            run.log({
+                "train_loss_severity": avg_train_loss,
+                "train_accuracy_severity": avg_train_accuracy,
+            })
 
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "disease_severity_first_model_frozen.pth")  # Save the model
-            run.save("disease_severity_first_model_frozen.pth")
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            total_val_accuracy = 0
+            with torch.no_grad():
+                for batch in val_data:
+                    images = batch[0].to(device)
+                    severity_labels = batch[2].to(device)
+                    _, severity_output = model(images)
+                    severity_loss = criterion(severity_output, torch.argmax(severity_labels, dim=1))
+                    val_loss += severity_loss.item()
 
-        # Early stopping
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+                    # Calculate accuracy
+                    logits = severity_output.detach().cpu().numpy()
+                    label_ids = severity_labels.to('cpu').numpy()
+                    total_val_accuracy += flat_accuracy(logits, label_ids)
 
-    # Train disease second
+            avg_val_loss = val_loss / len(val_data)
+            avg_val_accuracy = total_val_accuracy / len(val_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Validation Loss - Severity: {avg_val_loss}, Validation Accuracy - Severity: {avg_val_accuracy}")
 
-    # Freeze all the layers except the disease classifier
-    for param in model.features.parameters():
-        param.requires_grad = False
-    for param in model.avgpool.parameters():
-        param.requires_grad = False
-    for param in model.classifier.parameters():
-        param.requires_grad = False
-    for param in model.severity_classifier.parameters():
-        param.requires_grad = False
+            # Log metrics to wandb
+            run.log({
+                "val_loss_severity": avg_val_loss,
+                "val_accuracy_severity": avg_val_accuracy,
+            })
 
-    # Unfreeze the disease classifier
-    for param in model.disease_classifier.parameters():
-        param.requires_grad = True
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), "disease_severity_first_model_frozen.pth")  # Save the model
+                run.save("disease_severity_first_model_frozen.pth")
 
-    criterion = args.get("criterion", nn.CrossEntropyLoss())
-    optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
+            # Early stopping
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
 
-    epochs = args.get("epochs", 10)
-    best_val_loss = float('inf')  # Initialize the best validation loss
+        # Train disease second
 
-    early_stopping = EarlyStopping(patience=4, verbose=True)
+        # Freeze all the layers except the disease classifier
+        for param in model.features.parameters():
+            param.requires_grad = False
+        for param in model.avgpool.parameters():
+            param.requires_grad = False
+        for param in model.classifier.parameters():
+            param.requires_grad = False
+        for param in model.severity_classifier.parameters():
+            param.requires_grad = False
 
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        total_train_accuracy = 0
-        for step, batch in enumerate(train_data):
-            images = batch[0].to(device)
-            disease_labels = batch[1].to(device)
+        # Unfreeze the disease classifier
+        for param in model.disease_classifier.parameters():
+            param.requires_grad = True
 
-            optimizer.zero_grad()
-            disease_output, _ = model(images)
-            disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-            disease_loss.backward()
-            optimizer.step()
-            running_loss += disease_loss.item()
+        criterion = args.get("criterion", nn.CrossEntropyLoss())
+        optimizer = args.get("optimizer", torch.optim.Adam(model.parameters(), lr=args.get("lr", 0.001)))
 
-            # Calculate accuracy
-            logits = disease_output.detach().cpu().numpy()
-            label_ids = disease_labels.to('cpu').numpy()
-            total_train_accuracy += flat_accuracy(logits, label_ids)
+        epochs = args.get("epochs", 10)
+        best_val_loss = float('inf')  # Initialize the best validation loss
 
-        avg_train_loss = running_loss / len(train_data)
-        avg_train_accuracy = total_train_accuracy / len(train_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Training Loss - Disease: {avg_train_loss}, Training Accuracy - Disease: {avg_train_accuracy}")
+        early_stopping = EarlyStopping(patience=4, verbose=True)
 
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        total_val_accuracy = 0
-        with torch.no_grad():
-            for batch in val_data:
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            total_train_accuracy = 0
+            for step, batch in enumerate(train_data):
                 images = batch[0].to(device)
                 disease_labels = batch[1].to(device)
+
+                optimizer.zero_grad()
                 disease_output, _ = model(images)
                 disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
-                val_loss += disease_loss.item()
+                disease_loss.backward()
+                optimizer.step()
+                running_loss += disease_loss.item()
 
                 # Calculate accuracy
                 logits = disease_output.detach().cpu().numpy()
                 label_ids = disease_labels.to('cpu').numpy()
-                total_val_accuracy += flat_accuracy(logits, label_ids)
+                total_train_accuracy += flat_accuracy(logits, label_ids)
 
-        avg_val_loss = val_loss / len(val_data)
-        avg_val_accuracy = total_val_accuracy / len(val_data)
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Validation Loss - Disease: {avg_val_loss}, Validation Accuracy - Disease: {avg_val_accuracy}")
+            avg_train_loss = running_loss / len(train_data)
+            avg_train_accuracy = total_train_accuracy / len(train_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Training Loss - Disease: {avg_train_loss}, Training Accuracy - Disease: {avg_train_accuracy}")
 
-        # Log metrics to wandb
-        run.log({
-            "val_loss_disease": avg_val_loss,
-            "val_accuracy_disease": avg_val_accuracy,
-        })
+            run.log({
+                "train_loss_disease": avg_train_loss,
+                "train_accuracy_disease": avg_train_accuracy,
+            })
 
-        # Check if validation loss has improved
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "disease_severity_first_model_frozen.pth")  # Save the model
-            run.save("disease_severity_first_model_frozen.pth")
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            total_val_accuracy = 0
+            with torch.no_grad():
+                for batch in val_data:
+                    images = batch[0].to(device)
+                    disease_labels = batch[1].to(device)
+                    disease_output, _ = model(images)
+                    disease_loss = criterion(disease_output, torch.argmax(disease_labels, dim=1))
+                    val_loss += disease_loss.item()
 
-        # Early stopping
-        early_stopping(avg_val_loss, model)
-        if early_stopping.early_stop:
-            print("Early stopping")
-            break
+                    # Calculate accuracy
+                    logits = disease_output.detach().cpu().numpy()
+                    label_ids = disease_labels.to('cpu').numpy()
+                    total_val_accuracy += flat_accuracy(logits, label_ids)
 
-    print("")
-    print("Training complete!")
+            avg_val_loss = val_loss / len(val_data)
+            avg_val_accuracy = total_val_accuracy / len(val_data)
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Validation Loss - Disease: {avg_val_loss}, Validation Accuracy - Disease: {avg_val_accuracy}")
 
-    return model
+            # Log metrics to wandb
+            run.log({
+                "val_loss_disease": avg_val_loss,
+                "val_accuracy_disease": avg_val_accuracy,
+            })
+
+            # Check if validation loss has improved
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), "disease_severity_first_model_frozen.pth")  # Save the model
+                run.save("disease_severity_first_model_frozen.pth")
+
+            # Early stopping
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        print("")
+        print("Training complete!")
+
+        return model
 
 
-def run_experiment_freeze_severity(args):
     # ------------------------------
     # ----- Data Preparation -------
     # ------------------------------
@@ -2114,8 +2206,9 @@ def run_experiment_freeze_severity(args):
     run_name = name + "_" + animal_version_name(project_name)
     print("Project Name:", project_name)
     run = wandb.init(name=run_name, reinit=True, entity="plant_disease_detection", project=project_name)
-    run.config.update(args_dict)
-    model = train_freeze_severity(args_dict, train_data, val_data, test_data, device, run)
+    serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
+    run.config.update(serializable_args_dict)
+    model = train(args_dict, train_data, val_data, test_data, device, run)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -2129,12 +2222,12 @@ def run_experiment_freeze_severity(args):
     total_severity_correct = 0
     total_samples = 0
 
-    # Initialize lists to store correctly classified images (to print them in the next cell)
-    correct_images = []
-    correct_disease_labels = []
-    correct_severity_labels = []
-    correct_disease_predictions = []
-    correct_severity_predictions = []
+    # # Initialize lists to store correctly classified images (to print them in the next cell)
+    # correct_images = []
+    # correct_disease_labels = []
+    # correct_severity_labels = []
+    # correct_disease_predictions = []
+    # correct_severity_predictions = []
 
     all_disease_labels = []
     all_disease_predictions = []
@@ -2142,40 +2235,35 @@ def run_experiment_freeze_severity(args):
     all_severity_predictions = []
 
     with torch.no_grad():
-        for images, labels in test_data:
-            images, labels = images.to(device), labels.to(device)
-            output = model(images)
+        for images, disease_labels, severity_labels in test_data:
+            images, disease_labels, severity_labels = images.to(device), disease_labels.to(device), severity_labels.to(device)
+            disease_output, severity_output = model(images)
 
-            # Split labels into disease and severity
-            disease_labels = labels // 4  # Assuming there are 4 severity levels
-            severity_labels = labels % 4  # Assuming there are 4 severity levels
-
-            # Classification
-            _, predicted = torch.max(output, 1)
-            disease_predicted = predicted // 4  # Assuming there are 4 severity levels
-            severity_predicted = predicted % 4  # Assuming there are 4 severity levels
-
-            disease_correct = (disease_predicted == disease_labels)
+            # Disease classification
+            _, disease_predicted = torch.max(disease_output, 1)
+            disease_correct = (disease_predicted == torch.argmax(disease_labels, dim=1))
             total_disease_correct += disease_correct.sum().item()
-
-            severity_correct = (severity_predicted == severity_labels)
+            
+            # Severity classification
+            _, severity_predicted = torch.max(severity_output, 1)
+            severity_correct = (severity_predicted == torch.argmax(severity_labels, dim=1))
             total_severity_correct += severity_correct.sum().item()
-
+            
             total_samples += images.size(0)
 
-            # Find indices of correctly classified images
-            correct_indices = (disease_correct & severity_correct).nonzero().squeeze()
+            # # Find indices of correctly classified images
+            # correct_indices = (disease_correct & severity_correct).nonzero().squeeze()
 
-            # Check if correct_indices is a scalar
-            if correct_indices.dim() == 0:
-                correct_indices = [correct_indices.item()]
+            # # Check if correct_indices is a scalar
+            # if correct_indices.dim() == 0:
+            #     correct_indices = [correct_indices.item()]
 
-            # Append correctly classified images and their labels/predictions
-            correct_images.extend(images[correct_indices].cpu().numpy())
-            correct_disease_labels.extend(disease_labels[correct_indices].cpu().numpy())
-            correct_severity_labels.extend(severity_labels[correct_indices].cpu().numpy())
-            correct_disease_predictions.extend(disease_predicted[correct_indices].cpu().numpy())
-            correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
+            # # Append correctly classified images and their labels/predictions
+            # correct_images.extend(images[correct_indices].cpu().numpy())
+            # correct_disease_labels.extend(disease_labels[correct_indices].cpu().numpy())
+            # correct_severity_labels.extend(severity_labels[correct_indices].cpu().numpy())
+            # correct_disease_predictions.extend(disease_predicted[correct_indices].cpu().numpy())
+            # correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
 
             # Append all disease labels and predictions
             all_disease_labels.extend(disease_labels.cpu().numpy())
@@ -2380,11 +2468,11 @@ EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
 )
 
 EXPERIMENTS = [
+    EXPERIMENT_FREEZE_DISEASE,
+    EXPERIMENT_FREEZE_SEVERITY,
     EXPERIMENT_COMBINED,
     EXPERIMENT_DIVERGENT,
     EXPERIMENT_SEPARATE,
-    EXPERIMENT_FREEZE_DISEASE,
-    EXPERIMENT_FREEZE_SEVERITY
 ]
 
 
