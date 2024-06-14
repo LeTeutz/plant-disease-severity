@@ -16,8 +16,9 @@ import datetime
 from wandb import Api
 from torch.optim.lr_scheduler import StepLR
 import torchvision.models as models
-from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import json
+import traceback
 
 
 
@@ -664,31 +665,39 @@ def run_experiment_separate(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
 
     # Save the trained model
@@ -782,7 +791,7 @@ class DiseaseSeverityModel_CombinedV1(nn.Module):
         return x
 
 
-def run_experiment_combined(args):
+def run_experiment_combined(args):    
     def train(args, train_data, val_data, test_data, device, run, reverse_label_mapping):    
         num_combined_labels = 20  # Adjust this according to your data
         model = args.get("model", DiseaseSeverityModel_CombinedV1(num_combined_labels))
@@ -1033,13 +1042,13 @@ def run_experiment_combined(args):
             output = model(images)
             
             # Split labels into disease and severity
-            disease_labels = labels // 4  # Assuming there are 4 severity levels
-            severity_labels = labels % 4  # Assuming there are 4 severity levels
+            disease_labels = labels // 5  # Assuming there are 4 severity levels
+            severity_labels = labels % 5  # Assuming there are 4 severity levels
 
             # Classification
             _, predicted = torch.max(output, 1)
-            disease_predicted = predicted // 4  # Assuming there are 4 severity levels
-            severity_predicted = predicted % 4  # Assuming there are 4 severity levels
+            disease_predicted = predicted // 5  # Assuming there are 4 severity levels
+            severity_predicted = predicted % 5  # Assuming there are 4 severity levels
 
             disease_correct = (disease_predicted == disease_labels)
             total_disease_correct += disease_correct.sum().item()
@@ -1071,31 +1080,40 @@ def run_experiment_combined(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
 
     # Save the trained model
@@ -1106,6 +1124,7 @@ def run_experiment_combined(args):
         f.write(json.dumps(info, indent=4))
 
     wandb.join()
+
 
 
 #### --------------------------------------------
@@ -1522,31 +1541,40 @@ def run_experiment_divergent(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
     
     # Save the trained model
@@ -1898,31 +1926,40 @@ def run_experiment_freeze_disease(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
 
     # Save the trained model
@@ -2273,31 +2310,40 @@ def run_experiment_freeze_severity(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
 
     # Save the trained model
@@ -2469,8 +2515,8 @@ EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
 
 EXPERIMENTS = [
     EXPERIMENT_FREEZE_DISEASE,
-    EXPERIMENT_FREEZE_SEVERITY,
     EXPERIMENT_COMBINED,
+    EXPERIMENT_FREEZE_SEVERITY,
     EXPERIMENT_DIVERGENT,
     EXPERIMENT_SEPARATE,
 ]
@@ -2490,18 +2536,14 @@ def run_experiments(experiments):
             elif experiment.type == 'freeze_severity':
                 run_experiment_freeze_disease(experiment)
             else:
-                print("Invalid type type")
+                print("Invalid type")
                 sys.exit(1)
             print("Experiment completed: ", str(experiment))
         except Exception as e:
             print(f"Error running experiment: {e}")
+            print(traceback.format_exc())
             continue
-
-
-# if __name__ == '__main__':
-#     wandb.login(key="a8acb651e87c4dca872eeb0bdedcfccf93ab7171")
-#     run_experiments(EXPERIMENTS)
-#     wandb.finish()
+        
 
 wandb.login(key="a8acb651e87c4dca872eeb0bdedcfccf93ab7171")
 run_experiments(EXPERIMENTS)

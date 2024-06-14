@@ -2,7 +2,7 @@ import json
 
 import torch
 import wandb
-from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
@@ -344,31 +344,40 @@ def run_experiment(args):
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
-
-    # Compute precision, recall, and accuracy per label for disease classification
-    disease_report = classification_report(all_disease_labels, all_disease_predictions, output_dict=True)
-
-    # Compute precision, recall, and accuracy per label for severity classification
-    severity_report = classification_report(all_severity_labels, all_severity_predictions, output_dict=True)
-
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    # Compute overall precision, recall, and F1-score
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+
 
     # Log metrics to wandb
     run.log({
         "test_accuracy_disease": disease_accuracy,
         "test_accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "test_precision_disease": disease_precision,
+        "test_precision_severity": severity_precision,
+        "test_recall_disease": disease_recall,
+        "test_recall_severity": severity_recall,
+        "test_f1_disease": disease_f1,
+        "test_f1_severity": severity_f1,
     })
 
     info = {
         "run_name": run_name,
-        "hyperparameters": args_dict,
         "accuracy_disease": disease_accuracy,
         "accuracy_severity": severity_accuracy,
-        "disease_report": disease_report,
-        "severity_report": severity_report,
+        "precision_disease": disease_precision,
+        "precision_severity": severity_precision,
+        "recall_disease": disease_recall,
+        "recall_severity": severity_recall,
+        "f1_disease": disease_f1,
+        "f1_severity": severity_f1,
     }
 
     # Save the trained model

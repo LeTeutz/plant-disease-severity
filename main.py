@@ -5,6 +5,7 @@ import divergent_heads_classifier
 import combined_classifier
 import freeze_training_disease_first
 import freeze_training_severity_first
+import traceback
 from torchvision import transforms
 from types import SimpleNamespace
 
@@ -62,6 +63,7 @@ def run_experiments(experiments):
             print("Experiment completed: ", str(experiment))
         except Exception as e:
             print(f"Error running experiment: {e}")
+            print(traceback.format_exc())
             continue
 
 if __name__ == '__main__':
