@@ -304,9 +304,12 @@ def run_experiment(args):
 
     if augmentation:
         print("Augmenting dataset...")
+        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.save_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        train_dataset.dataset.aug_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
+        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2

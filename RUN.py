@@ -101,6 +101,7 @@ def random_augmentations(image, possible_augmentations, padding=10):
     transform = transforms.Compose(selected_augmentations)
     return ReflectPadding(padding=padding)(transform(image))
 
+
 def test_augmentations(image, possible_augmentations, num_images=20, images_per_row=8):
     num_rows = math.ceil(num_images / images_per_row)
     fig, ax = plt.subplots(num_rows, images_per_row, figsize=(20, 4*num_rows))
@@ -135,7 +136,7 @@ class DiaMOSDataset(Dataset):
         self.augment = augment
         self.imputation_value = imputation_value
         self.target_size = target_size
-        self.aug = aug_dir
+        self.aug_dir = aug_dir
 
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
@@ -236,7 +237,7 @@ class DiaMOSDataset(Dataset):
             current_size += 1
         
         self.data = augmented_data
-        
+    
 
 class DiaMOSDataset_Cartesian(Dataset):
     def __init__(self, csv_file, img_dir, data_path, transform=None, imputation_value=-1):
@@ -691,9 +692,12 @@ def run_experiment_separate(args):
 
     if augmentation:
         print("Augmenting dataset...")
+        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.save_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        train_dataset.dataset.aug_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
+        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
@@ -1599,9 +1603,12 @@ def run_experiment_divergent(args):
 
     if augmentation:
         print("Augmenting dataset...")
+        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.save_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        train_dataset.dataset.aug_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
+        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
 
     
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
@@ -2005,9 +2012,12 @@ def run_experiment_freeze_disease(args):
 
     if augmentation:
         print("Augmenting dataset...")
+        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.save_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        train_dataset.dataset.aug_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
+        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
@@ -2416,9 +2426,12 @@ def run_experiment_freeze_severity(args):
 
     if augmentation:
         print("Augmenting dataset...")
+        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.save_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        train_dataset.dataset.aug_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
+        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
 
     
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
@@ -2848,13 +2861,24 @@ EXPERIMENT_30X_AUGMENTED_FREEZE_S = SimpleNamespace(
 #     epochs = 25,
 # )
 
+EXPERIMENT_15X_SEPARATE = SimpleNamespace(
+    type = "freeze_severity",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    img_dir = 'data\\Pear\\leaves\\',
+    data_path = 'data\\Pear\\',
+    name = "1.5x_augmented_freeze_severity",
+    project_name = "Teo Test Runs",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 1.5,
+)
+
 EXPERIMENTS = [
-    # EXPERIMENT_15X_AUGMENTED_FREEZE_D,
-    EXPERIMENT_20X_AUGMENTED_FREEZE_D,
-    EXPERIMENT_30X_AUGMENTED_FREEZE_D,
-    # EXPERIMENT_15X_AUGMENTED_FREEZE_S,
-    EXPERIMENT_20X_AUGMENTED_FREEZE_S,
-    EXPERIMENT_30X_AUGMENTED_FREEZE_S,
+    EXPERIMENT_15X_SEPARATE,
 ]
 
 

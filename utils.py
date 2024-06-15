@@ -122,7 +122,7 @@ class DiaMOSDataset(Dataset):
         self.augment = augment
         self.imputation_value = imputation_value
         self.target_size = target_size
-        self.aug = aug_dir
+        self.aug_dir = aug_dir
 
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
