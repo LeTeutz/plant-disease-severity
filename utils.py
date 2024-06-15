@@ -114,13 +114,15 @@ class DiaMOSDataset(Dataset):
                  transform=None, 
                  augment=False, 
                  imputation_value=-1,
-                 target_size=10000):
+                 target_size=10000,
+                 aug_dir='/kaggle/working/augmented/'):
         self.data = []
         self.img_dir = img_dir
         self.transform = transform
         self.augment = augment
         self.imputation_value = imputation_value
         self.target_size = target_size
+        self.aug = aug_dir
 
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
@@ -155,14 +157,18 @@ class DiaMOSDataset(Dataset):
         filename, disease, severity = self.data[idx]
 
         image_path = None
-        for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+        for subfolder in ['curl', 'healthy', 'slug', 'spot']:
             potential_path = os.path.join(self.img_dir, subfolder, filename)
             if os.path.exists(potential_path):
                 image_path = potential_path
                 break
 
         if image_path is None:
-            raise Exception(f"Image not found: {filename}")
+            potential_path = os.path.join(self.aug_dir, filename)
+            if os.path.exists(potential_path):
+                image_path = potential_path
+            else:
+                raise Exception(f"Image not found: {filename}")
 
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  
@@ -177,7 +183,7 @@ class DiaMOSDataset(Dataset):
         return image, disease_label, severity_label
     
 
-    def augment_dataset(self, target_size, save_dir='/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented'):
+    def augment_dataset(self, target_size, save_dir='/kaggle/working/augmented/'):
         augmented_data = self.data.copy()
         current_size = len(self.data)
         os.makedirs(save_dir, exist_ok=True)
@@ -187,14 +193,18 @@ class DiaMOSDataset(Dataset):
             filename, disease, severity = self.data[idx]
 
             image_path = None
-            for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+            for subfolder in ['curl', 'healthy', 'slug', 'spot']:
                 potential_path = os.path.join(self.img_dir, subfolder, filename)
                 if os.path.exists(potential_path):
                     image_path = potential_path
                     break
             
             if image_path is None:
-                continue  # Skip if the image is not found
+                potential_path = os.path.join(self.aug_dir, filename)
+                if os.path.exists(potential_path):
+                    image_path = potential_path
+                else:
+                    continue  # Skip if the image is not found
 
             image = cv2.imread(image_path)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -203,8 +213,12 @@ class DiaMOSDataset(Dataset):
 
             augmented_filename = f"augmented_{current_size}.jpg"
             augmented_filepath = os.path.join(save_dir, augmented_filename)
-            augmented_image.save(augmented_filepath)
-
+            try:
+                augmented_image.save(augmented_filepath)
+            except TypeError as e:
+                print(f"Error saving image: {e}")
+                print(f"Image type: {type(augmented_image)}")
+                continue 
             augmented_data.append((augmented_filename, disease, severity))
             current_size += 1
         

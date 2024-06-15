@@ -339,13 +339,12 @@ def run_experiment(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
 
     # Log metrics to wandb
@@ -369,6 +368,10 @@ def run_experiment(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
 
     # Save the trained model
     torch.save(model.state_dict(), "disease_severity_model.pth")

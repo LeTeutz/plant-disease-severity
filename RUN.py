@@ -127,13 +127,15 @@ class DiaMOSDataset(Dataset):
                  transform=None, 
                  augment=False, 
                  imputation_value=-1,
-                 target_size=10000):
+                 target_size=10000,
+                 aug_dir='/kaggle/working/augmented/'):
         self.data = []
         self.img_dir = img_dir
         self.transform = transform
         self.augment = augment
         self.imputation_value = imputation_value
         self.target_size = target_size
+        self.aug = aug_dir
 
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
@@ -168,14 +170,18 @@ class DiaMOSDataset(Dataset):
         filename, disease, severity = self.data[idx]
 
         image_path = None
-        for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+        for subfolder in ['curl', 'healthy', 'slug', 'spot']:
             potential_path = os.path.join(self.img_dir, subfolder, filename)
             if os.path.exists(potential_path):
                 image_path = potential_path
                 break
 
         if image_path is None:
-            raise Exception(f"Image not found: {filename}")
+            potential_path = os.path.join(self.aug_dir, filename)
+            if os.path.exists(potential_path):
+                image_path = potential_path
+            else:
+                raise Exception(f"Image not found: {filename}")
 
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  
@@ -190,7 +196,7 @@ class DiaMOSDataset(Dataset):
         return image, disease_label, severity_label
     
 
-    def augment_dataset(self, target_size, save_dir='/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented'):
+    def augment_dataset(self, target_size, save_dir='/kaggle/working/augmented/'):
         augmented_data = self.data.copy()
         current_size = len(self.data)
         os.makedirs(save_dir, exist_ok=True)
@@ -200,14 +206,18 @@ class DiaMOSDataset(Dataset):
             filename, disease, severity = self.data[idx]
 
             image_path = None
-            for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+            for subfolder in ['curl', 'healthy', 'slug', 'spot']:
                 potential_path = os.path.join(self.img_dir, subfolder, filename)
                 if os.path.exists(potential_path):
                     image_path = potential_path
                     break
             
             if image_path is None:
-                continue  # Skip if the image is not found
+                potential_path = os.path.join(self.aug_dir, filename)
+                if os.path.exists(potential_path):
+                    image_path = potential_path
+                else:
+                    continue  # Skip if the image is not found
 
             image = cv2.imread(image_path)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -216,13 +226,17 @@ class DiaMOSDataset(Dataset):
 
             augmented_filename = f"augmented_{current_size}.jpg"
             augmented_filepath = os.path.join(save_dir, augmented_filename)
-            augmented_image.save(augmented_filepath)
-
+            try:
+                augmented_image.save(augmented_filepath)
+            except TypeError as e:
+                print(f"Error saving image: {e}")
+                print(f"Image type: {type(augmented_image)}")
+                continue 
             augmented_data.append((augmented_filename, disease, severity))
             current_size += 1
         
         self.data = augmented_data
-            
+        
 
 class DiaMOSDataset_Cartesian(Dataset):
     def __init__(self, csv_file, img_dir, data_path, transform=None, imputation_value=-1):
@@ -673,11 +687,12 @@ def run_experiment_separate(args):
     augmentation = args.augmentation if hasattr(args, 'augmentation') else False
     # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
     augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
-    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/working/augmented/'
 
     if augmentation:
         print("Augmenting dataset...")
         train_dataset.dataset.augment = True
+        train_dataset.dataset.save_dir = augment_save_dir
         train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
@@ -701,7 +716,9 @@ def run_experiment_separate(args):
     disease_model, severity_model = train(args_dict, train_data, val_data, test_data, device, run)
 
     if augmentation:
+        print("Removing augmented images...")
         os.rmdir(augment_save_dir)
+        print("Augmented images removed!")
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -777,13 +794,12 @@ def run_experiment_separate(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
     # Log metrics to wandb
     run.log({
@@ -806,6 +822,10 @@ def run_experiment_separate(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
 
     # Save the trained model
     torch.save(disease_model.state_dict(), "disease_model.pth")
@@ -1195,13 +1215,12 @@ def run_experiment_combined(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
 
     # Log metrics to wandb
@@ -1225,6 +1244,10 @@ def run_experiment_combined(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
 
     # Save the trained model
     torch.save(model.state_dict(), "disease_severity_model.pth")
@@ -1572,11 +1595,12 @@ def run_experiment_divergent(args):
     augmentation = args.augmentation if hasattr(args, 'augmentation') else False
     # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
     augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
-    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/working/augmented/'
 
     if augmentation:
         print("Augmenting dataset...")
         train_dataset.dataset.augment = True
+        train_dataset.dataset.save_dir = augment_save_dir
         train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
 
     
@@ -1601,7 +1625,9 @@ def run_experiment_divergent(args):
     model = train(args_dict, train_data, val_data, test_data, device, run)
 
     if augmentation:
+        print("Removing augmented images...")
         os.rmdir(augment_save_dir)
+        print("Augmented images removed!")
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1674,13 +1700,12 @@ def run_experiment_divergent(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
 
     # Log metrics to wandb
@@ -1704,6 +1729,10 @@ def run_experiment_divergent(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
     
     # Save the trained model
     torch.save(model.state_dict(), "disease_severity_model.pth")
@@ -1967,18 +1996,19 @@ def run_experiment_freeze_disease(args):
     augmentation = args.augmentation if hasattr(args, 'augmentation') else False
     # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
     augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
-    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
-
-    if augmentation:
-        print("Augmenting dataset...")
-        train_dataset.dataset.augment = True
-        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
-
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/working/augmented/'
     
     val_size = args.val_size if hasattr(args, 'val_size') else int(0.2 * len(full_dataset))
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.save_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
 
@@ -2001,7 +2031,9 @@ def run_experiment_freeze_disease(args):
     model = train(args_dict, train_data, val_data, test_data, device, run)
 
     if augmentation:
+        print("Removing augmented images...")
         os.rmdir(augment_save_dir)
+        print("Augmented images removed!")
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -2078,13 +2110,12 @@ def run_experiment_freeze_disease(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
 
     # Log metrics to wandb
@@ -2108,6 +2139,10 @@ def run_experiment_freeze_disease(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
 
     # Save the trained model
     torch.save(model.state_dict(), "disease_first_severity_model_frozen.pth")
@@ -2377,11 +2412,12 @@ def run_experiment_freeze_severity(args):
     augmentation = args.augmentation if hasattr(args, 'augmentation') else False
     # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
     augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
-    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/working/augmented/'
 
     if augmentation:
         print("Augmenting dataset...")
         train_dataset.dataset.augment = True
+        train_dataset.dataset.save_dir = augment_save_dir
         train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
 
     
@@ -2394,7 +2430,9 @@ def run_experiment_freeze_severity(args):
     test_data = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
 
     if augmentation:
+        print("Removing augmented images...")
         os.rmdir(augment_save_dir)
+        print("Augmented images removed!")
 
     # ------------------------------
     # ----- Model Training ---------
@@ -2481,13 +2519,12 @@ def run_experiment_freeze_severity(args):
         "test_accuracy_severity": severity_accuracy,
     })
 
-    # Compute overall precision, recall, and F1-score
-    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted')
-    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted')
-    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted')
+    disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_recall = recall_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_recall = recall_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
+    disease_f1 = f1_score(all_disease_labels, all_disease_predictions, average='weighted', zero_division=1)
+    severity_f1 = f1_score(all_severity_labels, all_severity_predictions, average='weighted', zero_division=1)
 
 
     # Log metrics to wandb
@@ -2511,6 +2548,10 @@ def run_experiment_freeze_severity(args):
         "f1_disease": disease_f1,
         "f1_severity": severity_f1,
     }
+
+    print("Metrics succesfuly logged to wandb!")
+
+
 
     # Save the trained model
     torch.save(model.state_dict(), "disease_severity_first_model_frozen.pth")
@@ -2678,8 +2719,8 @@ def run_experiment_freeze_severity(args):
 #     epochs = 25,
 # )
 
-EXPERIMENT_15X_AUGMENTED_DIVERGENT = SimpleNamespace(
-    type = "divergent_heads",
+EXPERIMENT_15X_AUGMENTED_FREEZE_D = SimpleNamespace(
+    type = "freeze_disease",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -2687,15 +2728,66 @@ EXPERIMENT_15X_AUGMENTED_DIVERGENT = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "1.5x_augmented_divergent_heads",
+    name = "1.5x_augmented_freeze_disease",
+    project_name = "experiments",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 1.5,
+
+)
+
+EXPERIMENT_20X_AUGMENTED_FREEZE_D = SimpleNamespace(
+    type = "freeze_disease",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    # img_dir = 'data\\Pear\\leaves\\',
+    # data_path = 'data\\Pear\\',
+    name = "2x_augmented_freeze_disease",
+    project_name = "experiments",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 2,
+    augment_save_dir = '/kaggle/working/augmented2/',
+)
+
+EXPERIMENT_30X_AUGMENTED_FREEZE_D = SimpleNamespace(
+    type = "freeze_disease",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    # img_dir = 'data\\Pear\\leaves\\',
+    # data_path = 'data\\Pear\\',
+    name = "3x_augmented_freeze_disease",
+    project_name = "experiments",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 3,
+    augment_save_dir = '/kaggle/working/augmented3/',
+)
+
+EXPERIMENT_15X_AUGMENTED_FREEZE_S = SimpleNamespace(
+    type = "freeze_severity",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    # img_dir = 'data\\Pear\\leaves\\',
+    # data_path = 'data\\Pear\\',
+    name = "1.5x_augmented_freeze_severity",
     project_name = "experiments",
     epochs = 25,
     augmentation = True,
     augment_target_size_factor = 1.5,
 )
 
-EXPERIMENT_20X_AUGMENTED_DIVERGENT = SimpleNamespace(
-    type = "divergent_heads",
+EXPERIMENT_20X_AUGMENTED_FREEZE_S = SimpleNamespace(
+    type = "freeze_severity",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -2703,15 +2795,16 @@ EXPERIMENT_20X_AUGMENTED_DIVERGENT = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "2x_augmented_divergent_heads",
+    name = "2x_augmented_freeze_severity",
     project_name = "experiments",
     epochs = 25,
     augmentation = True,
     augment_target_size_factor = 2,
+    augment_save_dir = '/kaggle/working/augmented2/',
 )
 
-EXPERIMENT_30X_AUGMENTED_DIVERGENT = SimpleNamespace(
-    type = "divergent_heads",
+EXPERIMENT_30X_AUGMENTED_FREEZE_S = SimpleNamespace(
+    type = "freeze_severity",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -2719,59 +2812,12 @@ EXPERIMENT_30X_AUGMENTED_DIVERGENT = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "3x_augmented_divergent_heads",
+    name = "3x_augmented_freeze_severity",
     project_name = "experiments",
     epochs = 25,
     augmentation = True,
     augment_target_size_factor = 3,
-)
-
-EXPERIMENT_15X_AUGMENTED_SEPARATE = SimpleNamespace(
-    type = "separate",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "1.5x_augmented_separate",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 1.5,
-)
-
-EXPERIMENT_20X_AUGMENTED_SEPARATE = SimpleNamespace(
-    type = "separate",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "2x_augmented_separate",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 2,
-)
-
-EXPERIMENT_30X_AUGMENTED_SEPARATE = SimpleNamespace(
-    type = "separate",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "3x_augmented_separate",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 3,
+    augment_save_dir = '/kaggle/working/augmented3/',
 )
 
 # EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
@@ -2803,12 +2849,12 @@ EXPERIMENT_30X_AUGMENTED_SEPARATE = SimpleNamespace(
 # )
 
 EXPERIMENTS = [
-    EXPERIMENT_15X_AUGMENTED_DIVERGENT,
-    EXPERIMENT_20X_AUGMENTED_DIVERGENT,
-    EXPERIMENT_30X_AUGMENTED_DIVERGENT,
-    # EXPERIMENT_15X_AUGMENTED_SEPARATE,
-    # EXPERIMENT_20X_AUGMENTED_SEPARATE,
-    # EXPERIMENT_30X_AUGMENTED_SEPARATE,
+    # EXPERIMENT_15X_AUGMENTED_FREEZE_D,
+    EXPERIMENT_20X_AUGMENTED_FREEZE_D,
+    EXPERIMENT_30X_AUGMENTED_FREEZE_D,
+    # EXPERIMENT_15X_AUGMENTED_FREEZE_S,
+    EXPERIMENT_20X_AUGMENTED_FREEZE_S,
+    EXPERIMENT_30X_AUGMENTED_FREEZE_S,
 ]
 
 
