@@ -18,6 +18,9 @@ from torch.optim.lr_scheduler import StepLR
 import torchvision.models as models
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import json
+import random
+import torchvision.transforms.functional as F
+import math
 import traceback
 
 
@@ -73,14 +76,65 @@ def animal_version_name(project_name):
     animal_index = len(runs)
     return animal_names[animal_index % len(animal_names)]
 
+possible_augmentations = [
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.9),
+    transforms.RandomRotation(degrees=20),
+    transforms.RandomResizedCrop(size=(256, 256), scale=(0.9, 1.2)),
+    transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1),
+    transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2)),
+    transforms.RandomAffine(degrees=20, translate=(0.1, 0.1), scale=(0.9, 1.2), shear=15)
+]
+
+class ReflectPadding:
+    def __init__(self, padding=50):
+        self.padding = padding
+
+    def __call__(self, img):
+        return F.pad(img, (self.padding, self.padding, self.padding, self.padding), padding_mode='edge')
+
+def random_augmentations(image, possible_augmentations, padding=10):
+    n = int(np.random.normal(loc=len(possible_augmentations)/2, scale=len(possible_augmentations)/4))
+    n = max(0, min(n, len(possible_augmentations)))
+    selected_augmentations = random.sample(possible_augmentations, n)
+    random.shuffle(selected_augmentations)
+    transform = transforms.Compose(selected_augmentations)
+    return ReflectPadding(padding=padding)(transform(image))
+
+def test_augmentations(image, possible_augmentations, num_images=20, images_per_row=8):
+    num_rows = math.ceil(num_images / images_per_row)
+    fig, ax = plt.subplots(num_rows, images_per_row, figsize=(20, 4*num_rows))
+    ax = ax.flatten()
+    ax[0].imshow(image)
+    ax[0].set_title('Original Image')
+
+    for i in range(1, num_images):
+        # augmented_image = random_augmentations(random_augmentations(image, possible_augmentations), possible_augmentations)
+        augmented_image = random_augmentations(image, possible_augmentations)
+        ax[i].imshow(augmented_image)
+        ax[i].set_title(f'Augmented Image {i}')
+        ax[i].set_xlabel('image')
+
+    ax[num_images].axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# test_augmentations(Image.open(f'data\Pear\\fruits\\20.jpg'), possible_augmentations, num_images=20, images_per_row=8)
+
 
 class DiaMOSDataset(Dataset):
-    def __init__(self, csv_file, img_dir, data_path, transform=None, imputation_value=-1):
+    def __init__(self, csv_file, img_dir, data_path, 
+                 transform=None, 
+                 augment=False, 
+                 imputation_value=-1,
+                 target_size=10000):
         self.data = []
         self.img_dir = img_dir
         self.transform = transform
+        self.augment = augment
         self.imputation_value = imputation_value
-        
+        self.target_size = target_size
+
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
         with open(csv_file_path, 'r') as f:
@@ -114,7 +168,7 @@ class DiaMOSDataset(Dataset):
         filename, disease, severity = self.data[idx]
 
         image_path = None
-        for subfolder in ['curl', 'healthy', 'slug', 'spot']:
+        for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
             potential_path = os.path.join(self.img_dir, subfolder, filename)
             if os.path.exists(potential_path):
                 image_path = potential_path
@@ -126,6 +180,7 @@ class DiaMOSDataset(Dataset):
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  
         image = Image.fromarray(image) 
+
         if self.transform:
             image = self.transform(image)
 
@@ -133,7 +188,41 @@ class DiaMOSDataset(Dataset):
         severity_label = torch.tensor(severity, dtype=torch.int)
 
         return image, disease_label, severity_label
+    
 
+    def augment_dataset(self, target_size, save_dir='/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented'):
+        augmented_data = self.data.copy()
+        current_size = len(self.data)
+        os.makedirs(save_dir, exist_ok=True)
+
+        while current_size < target_size:
+            idx = random.randint(0, len(self.data) - 1)
+            filename, disease, severity = self.data[idx]
+
+            image_path = None
+            for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+                potential_path = os.path.join(self.img_dir, subfolder, filename)
+                if os.path.exists(potential_path):
+                    image_path = potential_path
+                    break
+            
+            if image_path is None:
+                continue  # Skip if the image is not found
+
+            image = cv2.imread(image_path)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(image)
+            augmented_image = random_augmentations(image, possible_augmentations)
+
+            augmented_filename = f"augmented_{current_size}.jpg"
+            augmented_filepath = os.path.join(save_dir, augmented_filename)
+            augmented_image.save(augmented_filepath)
+
+            augmented_data.append((augmented_filename, disease, severity))
+            current_size += 1
+        
+        self.data = augmented_data
+            
 
 class DiaMOSDataset_Cartesian(Dataset):
     def __init__(self, csv_file, img_dir, data_path, transform=None, imputation_value=-1):
@@ -580,6 +669,17 @@ def run_experiment_separate(args):
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
+
+    augmentation = args.augmentation if hasattr(args, 'augmentation') else False
+    # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
+    augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
 
@@ -600,9 +700,13 @@ def run_experiment_separate(args):
     run.config.update(serializable_args_dict)
     disease_model, severity_model = train(args_dict, train_data, val_data, test_data, device, run)
 
+    if augmentation:
+        os.rmdir(augment_save_dir)
+
     # ------------------------------
     # ----- Model Evaluation -------
     # ------------------------------
+
 
     # Evaluation loop (for validation or test data)
     disease_model.eval()
@@ -668,6 +772,11 @@ def run_experiment_separate(args):
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
 
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
+
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
     severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
@@ -678,8 +787,6 @@ def run_experiment_separate(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,
@@ -1083,6 +1190,11 @@ def run_experiment_combined(args):
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
 
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
+
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
     severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
@@ -1094,8 +1206,6 @@ def run_experiment_combined(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,
@@ -1458,6 +1568,18 @@ def run_experiment_divergent(args):
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
+        
+    augmentation = args.augmentation if hasattr(args, 'augmentation') else False
+    # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
+    augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
+    
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
 
@@ -1477,6 +1599,9 @@ def run_experiment_divergent(args):
     serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
     run.config.update(serializable_args_dict)
     model = train(args_dict, train_data, val_data, test_data, device, run)
+
+    if augmentation:
+        os.rmdir(augment_save_dir)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1544,6 +1669,11 @@ def run_experiment_divergent(args):
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
 
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
+
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
     severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
@@ -1555,8 +1685,6 @@ def run_experiment_divergent(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,
@@ -1834,7 +1962,19 @@ def run_experiment_freeze_disease(args):
                                                                      'data_path') else '/kaggle/input/diamos-plant-dataset/Pear/',
                                  transform=transformations)
 
-    train_size = args.train_size if hasattr(args, 'train_size') else int(0.6 * len(full_dataset))
+    train_size = args.train_size if hasattr(args, 'train_size') else int(0.6 * len(full_dataset))    
+    
+    augmentation = args.augmentation if hasattr(args, 'augmentation') else False
+    # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
+    augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
+    
     val_size = args.val_size if hasattr(args, 'val_size') else int(0.2 * len(full_dataset))
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
@@ -1859,6 +1999,9 @@ def run_experiment_freeze_disease(args):
     serializable_args_dict = {k: v for k, v in args_dict.items() if isinstance(v, (int, float, str, bool, list, dict, tuple, set))}
     run.config.update(serializable_args_dict)
     model = train(args_dict, train_data, val_data, test_data, device, run)
+
+    if augmentation:
+        os.rmdir(augment_save_dir)
 
     # ------------------------------
     # ----- Model Evaluation -------
@@ -1919,15 +2062,21 @@ def run_experiment_freeze_disease(args):
             # correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
 
             # Append all disease labels and predictions
-            all_disease_labels.extend(disease_labels.cpu().numpy())
+            # Append all disease labels and predictions
+            all_disease_labels.extend(torch.argmax(disease_labels, dim=1).cpu().numpy())
             all_disease_predictions.extend(disease_predicted.cpu().numpy())
-            all_severity_labels.extend(severity_labels.cpu().numpy())
+            all_severity_labels.extend(torch.argmax(severity_labels, dim=1).cpu().numpy())
             all_severity_predictions.extend(severity_predicted.cpu().numpy())
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
 
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
@@ -1940,8 +2089,6 @@ def run_experiment_freeze_disease(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,
@@ -2226,6 +2373,18 @@ def run_experiment_freeze_severity(args):
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
+    
+    augmentation = args.augmentation if hasattr(args, 'augmentation') else False
+    # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
+    augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
+    
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
 
@@ -2233,6 +2392,9 @@ def run_experiment_freeze_severity(args):
                             pin_memory=True)
     val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
     test_data = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+
+    if augmentation:
+        os.rmdir(augment_save_dir)
 
     # ------------------------------
     # ----- Model Training ---------
@@ -2303,15 +2465,21 @@ def run_experiment_freeze_severity(args):
             # correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
 
             # Append all disease labels and predictions
-            all_disease_labels.extend(disease_labels.cpu().numpy())
+            # Append all disease labels and predictions
+            all_disease_labels.extend(torch.argmax(disease_labels, dim=1).cpu().numpy())
             all_disease_predictions.extend(disease_predicted.cpu().numpy())
-            all_severity_labels.extend(severity_labels.cpu().numpy())
+            all_severity_labels.extend(torch.argmax(severity_labels, dim=1).cpu().numpy())
             all_severity_predictions.extend(severity_predicted.cpu().numpy())
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
 
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
@@ -2324,8 +2492,6 @@ def run_experiment_freeze_severity(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,
@@ -2354,7 +2520,6 @@ def run_experiment_freeze_severity(args):
         f.write(json.dumps(info, indent=4))
 
     wandb.join()
-
 
 #### --------------------------------------------
 #### main.py
@@ -2443,21 +2608,77 @@ def run_experiment_freeze_severity(args):
 #     model = DiseaseSeverityModel_CombinedResNet50(20)
 # )
 
-EXPERIMENT_COMBINED = SimpleNamespace(
-    type = "combined",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = 'combined',
-    project_name = "experiments",
-    epochs = 25,
-)
+# EXPERIMENT_COMBINED = SimpleNamespace(
+#     type = "combined",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = 'combined',
+#     project_name = "experiments",
+#     epochs = 25,
+# )
 
-EXPERIMENT_DIVERGENT = SimpleNamespace(
+# EXPERIMENT_DIVERGENT = SimpleNamespace(
+#     type = "divergent_heads",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "divergent_heads",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
+
+# EXPERIMENT_SEPARATE = SimpleNamespace(
+#     type = "separate",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "separate",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
+
+# EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
+#     type = "freeze_disease",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "freeze_disease",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
+
+# EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "freeze_severity",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
+
+EXPERIMENT_15X_AUGMENTED_DIVERGENT = SimpleNamespace(
     type = "divergent_heads",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -2466,12 +2687,46 @@ EXPERIMENT_DIVERGENT = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "divergent_heads",
+    name = "1.5x_augmented_divergent_heads",
     project_name = "experiments",
     epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 1.5,
 )
 
-EXPERIMENT_SEPARATE = SimpleNamespace(
+EXPERIMENT_20X_AUGMENTED_DIVERGENT = SimpleNamespace(
+    type = "divergent_heads",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    # img_dir = 'data\\Pear\\leaves\\',
+    # data_path = 'data\\Pear\\',
+    name = "2x_augmented_divergent_heads",
+    project_name = "experiments",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 2,
+)
+
+EXPERIMENT_30X_AUGMENTED_DIVERGENT = SimpleNamespace(
+    type = "divergent_heads",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    # img_dir = 'data\\Pear\\leaves\\',
+    # data_path = 'data\\Pear\\',
+    name = "3x_augmented_divergent_heads",
+    project_name = "experiments",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 3,
+)
+
+EXPERIMENT_15X_AUGMENTED_SEPARATE = SimpleNamespace(
     type = "separate",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -2480,13 +2735,15 @@ EXPERIMENT_SEPARATE = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "separate",
+    name = "1.5x_augmented_separate",
     project_name = "experiments",
     epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 1.5,
 )
 
-EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
-    type = "freeze_disease",
+EXPERIMENT_20X_AUGMENTED_SEPARATE = SimpleNamespace(
+    type = "separate",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -2494,13 +2751,15 @@ EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "freeze_disease",
+    name = "2x_augmented_separate",
     project_name = "experiments",
     epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 2,
 )
 
-EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
-    type = "freeze_severity",
+EXPERIMENT_30X_AUGMENTED_SEPARATE = SimpleNamespace(
+    type = "separate",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -2508,17 +2767,48 @@ EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
     ]),
     # img_dir = 'data\\Pear\\leaves\\',
     # data_path = 'data\\Pear\\',
-    name = "freeze_severity",
+    name = "3x_augmented_separate",
     project_name = "experiments",
     epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 3,
 )
+
+# EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
+#     type = "freeze_disease",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "freeze_disease",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
+
+# EXPERIMENT_FREEZE_SEVERITY = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "freeze_severity",
+#     project_name = "experiments",
+#     epochs = 25,
+# )
 
 EXPERIMENTS = [
-    EXPERIMENT_FREEZE_DISEASE,
-    EXPERIMENT_COMBINED,
-    EXPERIMENT_FREEZE_SEVERITY,
-    EXPERIMENT_DIVERGENT,
-    EXPERIMENT_SEPARATE,
+    EXPERIMENT_15X_AUGMENTED_DIVERGENT,
+    EXPERIMENT_20X_AUGMENTED_DIVERGENT,
+    EXPERIMENT_30X_AUGMENTED_DIVERGENT,
+    # EXPERIMENT_15X_AUGMENTED_SEPARATE,
+    # EXPERIMENT_20X_AUGMENTED_SEPARATE,
+    # EXPERIMENT_30X_AUGMENTED_SEPARATE,
 ]
 
 
@@ -2543,7 +2833,7 @@ def run_experiments(experiments):
             print(f"Error running experiment: {e}")
             print(traceback.format_exc())
             continue
-        
+
 
 wandb.login(key="a8acb651e87c4dca872eeb0bdedcfccf93ab7171")
 run_experiments(EXPERIMENTS)

@@ -15,6 +15,14 @@ args = [
     model
     epochs
     backbone
+    augmentations
+    augment_train_dataset
+    augment_target_size_factor
+]
+
+TODO args = [
+    augment_operations
+
 ]
 
 separate classifiers args = [

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 
 EXPERIMENT1 = SimpleNamespace(
-    type = "divergent_heads",
+    type = "separate",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -20,27 +20,46 @@ EXPERIMENT1 = SimpleNamespace(
     img_dir = 'data\\Pear\\leaves\\',
     data_path = 'data\\Pear\\',
     project_name = "Teo Test Runs",
-    epochs = 25
+    name = "2x_augmented_separate",
+    epochs = 25,
+    augmentation = True,
+    augment_target_size_factor = 2,
+    augment_save_dir = 'data\\Pear\\leaves\\augmented\\'
 )
 
 
-EXPERIMENT2 = SimpleNamespace(
-    type = "combined",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    img_dir = 'data\\Pear\\leaves\\',
-    data_path = 'data\\Pear\\',
-    project_name = "Teo Test Runs",
-    epochs = 25
-)
+
+
+# EXPERIMENT1 = SimpleNamespace(
+#     type = "divergent_heads",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     img_dir = 'data\\Pear\\leaves\\',
+#     data_path = 'data\\Pear\\',
+#     project_name = "Teo Test Runs",
+#     epochs = 25
+# )
+
+
+# EXPERIMENT2 = SimpleNamespace(
+#     type = "combined",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     img_dir = 'data\\Pear\\leaves\\',
+#     data_path = 'data\\Pear\\',
+#     project_name = "Teo Test Runs",
+#     epochs = 25
+# )
 
 
 EXPERIMENTS = [
-    EXPERIMENT1,
-    EXPERIMENT2
+    EXPERIMENT1
 ]
 
 

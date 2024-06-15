@@ -1,5 +1,5 @@
 import json
-
+import os
 import torch
 import wandb
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -260,6 +260,18 @@ def run_experiment(args):
     test_size = args.test_size if hasattr(args, 'test_size') else len(full_dataset) - train_size - val_size
 
     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
+    
+    augmentation = args.augmentation if hasattr(args, 'augmentation') else False
+    # augment_operations = args.augment_operations if hasattr(args, 'augment_operations') else []
+    augment_target_size_factor = args.augment_target_size_factor if hasattr(args, 'augment_target_size_factor') else 1
+    augment_save_dir = args.augment_save_dir if hasattr(args, 'augment_save_dir') else '/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented/'
+
+    if augmentation:
+        print("Augmenting dataset...")
+        train_dataset.dataset.augment = True
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+
+    
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
 
@@ -267,6 +279,9 @@ def run_experiment(args):
                             pin_memory=True)
     val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
     test_data = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+
+    if augmentation:
+        os.rmdir(augment_save_dir)
 
     # ------------------------------
     # ----- Model Training ---------
@@ -337,15 +352,21 @@ def run_experiment(args):
             # correct_severity_predictions.extend(severity_predicted[correct_indices].cpu().numpy())
 
             # Append all disease labels and predictions
-            all_disease_labels.extend(disease_labels.cpu().numpy())
+            # Append all disease labels and predictions
+            all_disease_labels.extend(torch.argmax(disease_labels, dim=1).cpu().numpy())
             all_disease_predictions.extend(disease_predicted.cpu().numpy())
-            all_severity_labels.extend(severity_labels.cpu().numpy())
+            all_severity_labels.extend(torch.argmax(severity_labels, dim=1).cpu().numpy())
             all_severity_predictions.extend(severity_predicted.cpu().numpy())
 
     disease_accuracy = total_disease_correct / total_samples
     severity_accuracy = total_severity_correct / total_samples
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
+
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
 
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
@@ -358,8 +379,6 @@ def run_experiment(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,

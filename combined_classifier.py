@@ -334,6 +334,11 @@ def run_experiment(args):
     print(f'Disease Classification Accuracy: {disease_accuracy * 100:.2f}%')
     print(f'Severity Classification Accuracy: {severity_accuracy * 100:.2f}%')
 
+    run.log({
+        "test_accuracy_disease": disease_accuracy,
+        "test_accuracy_severity": severity_accuracy,
+    })
+
     # Compute overall precision, recall, and F1-score
     disease_precision = precision_score(all_disease_labels, all_disease_predictions, average='weighted')
     severity_precision = precision_score(all_severity_labels, all_severity_predictions, average='weighted')
@@ -345,8 +350,6 @@ def run_experiment(args):
 
     # Log metrics to wandb
     run.log({
-        "test_accuracy_disease": disease_accuracy,
-        "test_accuracy_severity": severity_accuracy,
         "test_precision_disease": disease_precision,
         "test_precision_severity": severity_precision,
         "test_recall_disease": disease_recall,

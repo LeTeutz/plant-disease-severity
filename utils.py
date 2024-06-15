@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 import datetime
+import random
+import torchvision.transforms.functional as F
+import math
 from wandb import Api
 
 animal_names = [
@@ -61,14 +64,64 @@ def animal_version_name(project_name):
     animal_index = len(runs)
     return animal_names[animal_index % len(animal_names)]
 
+possible_augmentations = [
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.9),
+    transforms.RandomRotation(degrees=20),
+    transforms.RandomResizedCrop(size=(256, 256), scale=(0.9, 1.2)),
+    transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1),
+    transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2)),
+    transforms.RandomAffine(degrees=20, translate=(0.1, 0.1), scale=(0.9, 1.2), shear=15)
+]
+
+class ReflectPadding:
+    def __init__(self, padding=50):
+        self.padding = padding
+
+    def __call__(self, img):
+        return F.pad(img, (self.padding, self.padding, self.padding, self.padding), padding_mode='edge')
+
+def random_augmentations(image, possible_augmentations, padding=10):
+    n = int(np.random.normal(loc=len(possible_augmentations)/2, scale=len(possible_augmentations)/4))
+    n = max(0, min(n, len(possible_augmentations)))
+    selected_augmentations = random.sample(possible_augmentations, n)
+    random.shuffle(selected_augmentations)
+    transform = transforms.Compose(selected_augmentations)
+    return ReflectPadding(padding=padding)(transform(image))
+
+def test_augmentations(image, possible_augmentations, num_images=20, images_per_row=8):
+    num_rows = math.ceil(num_images / images_per_row)
+    fig, ax = plt.subplots(num_rows, images_per_row, figsize=(20, 4*num_rows))
+    ax = ax.flatten()
+    ax[0].imshow(image)
+    ax[0].set_title('Original Image')
+
+    for i in range(1, num_images):
+        # augmented_image = random_augmentations(random_augmentations(image, possible_augmentations), possible_augmentations)
+        augmented_image = random_augmentations(image, possible_augmentations)
+        ax[i].imshow(augmented_image)
+        ax[i].set_title(f'Augmented Image {i}')
+        ax[i].set_xlabel('image')
+
+    ax[num_images].axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# test_augmentations(Image.open(f'data\Pear\\fruits\\20.jpg'), possible_augmentations, num_images=20, images_per_row=8)
 
 class DiaMOSDataset(Dataset):
-    def __init__(self, csv_file, img_dir, data_path, transform=None, imputation_value=-1):
+    def __init__(self, csv_file, img_dir, data_path, 
+                 transform=None, 
+                 augment=False, 
+                 imputation_value=-1,
+                 target_size=10000):
         self.data = []
         self.img_dir = img_dir
         self.transform = transform
+        self.augment = augment
         self.imputation_value = imputation_value
-        
+        self.target_size = target_size
+
         csv_file_path = os.path.join(data_path, 'annotation/csv', csv_file) 
         
         with open(csv_file_path, 'r') as f:
@@ -102,7 +155,7 @@ class DiaMOSDataset(Dataset):
         filename, disease, severity = self.data[idx]
 
         image_path = None
-        for subfolder in ['curl', 'healthy', 'slug', 'spot']:
+        for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
             potential_path = os.path.join(self.img_dir, subfolder, filename)
             if os.path.exists(potential_path):
                 image_path = potential_path
@@ -114,6 +167,7 @@ class DiaMOSDataset(Dataset):
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  
         image = Image.fromarray(image) 
+
         if self.transform:
             image = self.transform(image)
 
@@ -121,6 +175,41 @@ class DiaMOSDataset(Dataset):
         severity_label = torch.tensor(severity, dtype=torch.int)
 
         return image, disease_label, severity_label
+    
+
+    def augment_dataset(self, target_size, save_dir='/kaggle/input/diamos-plant-dataset/Pear/leaves/augmented'):
+        augmented_data = self.data.copy()
+        current_size = len(self.data)
+        os.makedirs(save_dir, exist_ok=True)
+
+        while current_size < target_size:
+            idx = random.randint(0, len(self.data) - 1)
+            filename, disease, severity = self.data[idx]
+
+            image_path = None
+            for subfolder in ['curl', 'healthy', 'slug', 'spot', 'augmented']:
+                potential_path = os.path.join(self.img_dir, subfolder, filename)
+                if os.path.exists(potential_path):
+                    image_path = potential_path
+                    break
+            
+            if image_path is None:
+                continue  # Skip if the image is not found
+
+            image = cv2.imread(image_path)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(image)
+            augmented_image = random_augmentations(image, possible_augmentations)
+
+            augmented_filename = f"augmented_{current_size}.jpg"
+            augmented_filepath = os.path.join(save_dir, augmented_filename)
+            augmented_image.save(augmented_filepath)
+
+            augmented_data.append((augmented_filename, disease, severity))
+            current_size += 1
+        
+        self.data = augmented_data
+            
 
 
 class DiaMOSDataset_Cartesian(Dataset):
