@@ -22,6 +22,11 @@ import random
 import torchvision.transforms.functional as F
 import math
 import traceback
+from efficientnet_pytorch import EfficientNet
+from torchvision.models import densenet201
+from torchvision.models import mobilenet_v2
+from torchvision.models import inception_v3
+from torchvision.models import resnet50
 
 
 
@@ -226,12 +231,15 @@ class DiaMOSDataset(Dataset):
             augmented_image = random_augmentations(image, possible_augmentations)
 
             augmented_filename = f"augmented_{current_size}.jpg"
-            augmented_filepath = os.path.join(save_dir, augmented_filename)
+            augmented_filepath = os.path.join(self.aug_dir, augmented_filename)
             try:
-                augmented_image.save(augmented_filepath)
+                augmented_image_np = np.array(augmented_image)
+                augmented_image_bgr = cv2.cvtColor(augmented_image_np, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(augmented_filepath, augmented_image_bgr)
             except TypeError as e:
                 print(f"Error saving image: {e}")
                 print(f"Image type: {type(augmented_image)}")
+                print(traceback.format_exc())
                 continue 
             augmented_data.append((augmented_filename, disease, severity))
             current_size += 1
@@ -399,8 +407,6 @@ def sanity_check_datasets():
 #### --------------------------------------------
 #### separate_classifiers.py
 
-
-
 class DiseaseModel(nn.Module):
     def __init__(self, num_disease_classes):
         super(DiseaseModel, self).__init__()
@@ -427,6 +433,101 @@ class DiseaseModel(nn.Module):
         return x
 
 
+class DiseaseModelResNet(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelResNet, self).__init__()
+        resnet = resnet50(pretrained=True)
+        for param in resnet.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(resnet.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+class DiseaseModelDenseNet(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelDenseNet, self).__init__()
+        densenet = densenet201(pretrained=True)
+        for param in densenet.parameters():
+            param.requires_grad = False
+        self.features = densenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1920 * 7 * 7, 4096),  # Update the input size of the first linear layer
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Reshape the output to a 4D tensor
+        x = self.classifier(x)
+        return x
+
+class DiseaseModelInception(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelInception, self).__init__()
+        self.inception = inception_v3(pretrained=True, aux_logits=False)  # Disable aux_logits
+
+        # Freeze the convolutional base
+        for param in self.inception.parameters():
+            param.requires_grad = False
+
+        # Replace the final fully connected layer
+        in_features_main = self.inception.fc.in_features
+        self.inception.fc = nn.Sequential(
+            nn.Linear(in_features_main, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.inception(x)
+        return x 
+    
+
+class DiseaseModelMobile(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelMobile, self).__init__()
+        mobilenet = mobilenet_v2(pretrained=True)
+        for param in mobilenet.parameters():
+            param.requires_grad = False
+        self.features = mobilenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(62720, 4096),  # Adjusted input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Reshape the output to a 4D tensor
+        x = self.classifier(x)
+        return x
+
 class SeverityModel(nn.Module):
     def __init__(self, num_severity_levels):
         super(SeverityModel, self).__init__()
@@ -451,6 +552,103 @@ class SeverityModel(nn.Module):
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
+
+
+class SeverityModelResNet(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelResNet, self).__init__()
+        resnet = resnet50(pretrained=True)
+        for param in resnet.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(resnet.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelDenseNet(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelDenseNet, self).__init__()
+        densenet = densenet201(pretrained=True)
+        for param in densenet.parameters():
+            param.requires_grad = False
+        self.features = densenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1920 * 7 * 7, 4096),  # Correct input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelInception(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelInception, self).__init__()
+        inception = inception_v3(pretrained=True, aux_logits=False)  # Disable aux_logits
+        for param in inception.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(inception.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(inception.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelMobile(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelMobile, self).__init__()
+        mobilenet = mobilenet_v2(pretrained=True)
+        for param in mobilenet.parameters():
+            param.requires_grad = False
+        self.features = mobilenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1280, 4096),  # Correct input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
 
 
 def run_experiment_separate(args):
@@ -692,12 +890,11 @@ def run_experiment_separate(args):
 
     if augmentation:
         print("Augmenting dataset...")
-        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
+        print("Length of train dataset before augmentation: ", len(train_dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.aug_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
-        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
-        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
+        train_dataset.dataset.save_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset))
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
@@ -1603,12 +1800,11 @@ def run_experiment_divergent(args):
 
     if augmentation:
         print("Augmenting dataset...")
-        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
+        print("Length of train dataset before augmentation: ", len(train_dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.aug_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
-        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
-        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
+        train_dataset.dataset.save_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset))
 
     
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
@@ -2012,12 +2208,11 @@ def run_experiment_freeze_disease(args):
 
     if augmentation:
         print("Augmenting dataset...")
-        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
+        print("Length of train dataset before augmentation: ", len(train_dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.aug_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
-        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
-        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
+        train_dataset.dataset.save_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset))
 
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
     num_workers = args.num_workers if hasattr(args, 'num_workers') else 2
@@ -2426,12 +2621,11 @@ def run_experiment_freeze_severity(args):
 
     if augmentation:
         print("Augmenting dataset...")
-        print("Length of train dataset before augmentation: ", len(train_dataset.dataset))
+        print("Length of train dataset before augmentation: ", len(train_dataset))
         train_dataset.dataset.augment = True
-        train_dataset.dataset.aug_dir = augment_save_dir
-        train_dataset.dataset.augment_dataset(len(train_dataset.dataset) * augment_target_size_factor, augment_save_dir)
-        print("Length of train dataset after augmentation: ", len(train_dataset.dataset))
-        train_dataset = torch.utils.data.Subset(train_dataset.dataset, range(len(train_dataset.dataset)))
+        train_dataset.dataset.save_dir = augment_save_dir
+        train_dataset.dataset.augment_dataset(len(train_dataset) * augment_target_size_factor, augment_save_dir)
+        print("Length of train dataset after augmentation: ", len(train_dataset))
 
     
     batch_size = args.batch_size if hasattr(args, 'batch_size') else 16
@@ -2732,106 +2926,106 @@ def run_experiment_freeze_severity(args):
 #     epochs = 25,
 # )
 
-EXPERIMENT_15X_AUGMENTED_FREEZE_D = SimpleNamespace(
-    type = "freeze_disease",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "1.5x_augmented_freeze_disease",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 1.5,
+# EXPERIMENT_15X_AUGMENTED_FREEZE_D = SimpleNamespace(
+#     type = "freeze_disease",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "1.5x_augmented_freeze_disease",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 1.5,
 
-)
+# )
 
-EXPERIMENT_20X_AUGMENTED_FREEZE_D = SimpleNamespace(
-    type = "freeze_disease",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "2x_augmented_freeze_disease",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 2,
-    augment_save_dir = '/kaggle/working/augmented2/',
-)
+# EXPERIMENT_20X_AUGMENTED_FREEZE_D = SimpleNamespace(
+#     type = "freeze_disease",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "2x_augmented_freeze_disease",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 2,
+#     augment_save_dir = '/kaggle/working/augmented2/',
+# )
 
-EXPERIMENT_30X_AUGMENTED_FREEZE_D = SimpleNamespace(
-    type = "freeze_disease",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "3x_augmented_freeze_disease",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 3,
-    augment_save_dir = '/kaggle/working/augmented3/',
-)
+# EXPERIMENT_30X_AUGMENTED_FREEZE_D = SimpleNamespace(
+#     type = "freeze_disease",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "3x_augmented_freeze_disease",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 3,
+#     augment_save_dir = '/kaggle/working/augmented3/',
+# )
 
-EXPERIMENT_15X_AUGMENTED_FREEZE_S = SimpleNamespace(
-    type = "freeze_severity",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "1.5x_augmented_freeze_severity",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 1.5,
-)
+# EXPERIMENT_15X_AUGMENTED_FREEZE_S = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "1.5x_augmented_freeze_severity",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 1.5,
+# )
 
-EXPERIMENT_20X_AUGMENTED_FREEZE_S = SimpleNamespace(
-    type = "freeze_severity",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "2x_augmented_freeze_severity",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 2,
-    augment_save_dir = '/kaggle/working/augmented2/',
-)
+# EXPERIMENT_20X_AUGMENTED_FREEZE_S = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "2x_augmented_freeze_severity",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 2,
+#     augment_save_dir = '/kaggle/working/augmented2/',
+# )
 
-EXPERIMENT_30X_AUGMENTED_FREEZE_S = SimpleNamespace(
-    type = "freeze_severity",
-    transforms = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]),
-    # img_dir = 'data\\Pear\\leaves\\',
-    # data_path = 'data\\Pear\\',
-    name = "3x_augmented_freeze_severity",
-    project_name = "experiments",
-    epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 3,
-    augment_save_dir = '/kaggle/working/augmented3/',
-)
+# EXPERIMENT_30X_AUGMENTED_FREEZE_S = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     # img_dir = 'data\\Pear\\leaves\\',
+#     # data_path = 'data\\Pear\\',
+#     name = "3x_augmented_freeze_severity",
+#     project_name = "experiments",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 3,
+#     augment_save_dir = '/kaggle/working/augmented3/',
+# )
 
 # EXPERIMENT_FREEZE_DISEASE = SimpleNamespace(
 #     type = "freeze_disease",
@@ -2861,24 +3055,98 @@ EXPERIMENT_30X_AUGMENTED_FREEZE_S = SimpleNamespace(
 #     epochs = 25,
 # )
 
-EXPERIMENT_15X_SEPARATE = SimpleNamespace(
-    type = "freeze_severity",
+# EXPERIMENT_15X_SEPARATE = SimpleNamespace(
+#     type = "freeze_severity",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     img_dir = 'data\\Pear\\leaves\\',
+#     data_path = 'data\\Pear\\',
+#     name = "1.5x_augmented_freeze_severity",
+#     project_name = "Teo Test Runs",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 1.5,
+# )
+
+VGG = SimpleNamespace(
+    type = "separate",
     transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ]),
-    img_dir = 'data\\Pear\\leaves\\',
-    data_path = 'data\\Pear\\',
-    name = "1.5x_augmented_freeze_severity",
-    project_name = "Teo Test Runs",
+    name = "vgg_separate",
+    project_name = "experiments",
     epochs = 25,
-    augmentation = True,
-    augment_target_size_factor = 1.5,
+    disease_model = DiseaseModel(num_disease_classes=4),
+    severity_model = SeverityModel(num_severity_levels=5),
+)
+
+RESNET = SimpleNamespace(
+    type = "separate",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    name = "resnet_separate",
+    project_name = "experiments",
+    epochs = 25,
+    disease_model = DiseaseModelResNet(num_disease_classes=4),
+    severity_model = SeverityModelResNet(num_severity_levels=5),
+)
+
+DENSE = SimpleNamespace(
+    type = "separate",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    name = "dense_separate",
+    project_name = "experiments",
+    epochs = 25,
+    disease_model = DiseaseModelDenseNet(num_disease_classes=4),
+    severity_model = SeverityModelDenseNet(num_severity_levels=5),
+)
+
+INCEPTION = SimpleNamespace(
+    type = "separate",
+    transforms = transforms.Compose([
+        transforms.Resize((299, 299)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    name = "inception_separate",
+    project_name = "experiments",
+    epochs = 25,
+    disease_model = DiseaseModelInception(num_disease_classes=4),
+    severity_model = SeverityModelInception(num_severity_levels=5),
+)
+
+MOBILE = SimpleNamespace(
+    type = "separate",
+    transforms = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    name = "mobile_separate",
+    project_name = "experiments",
+    epochs = 25,
+    disease_model = DiseaseModelMobile(num_disease_classes=4),
+    severity_model = SeverityModelMobile(num_severity_levels=5),
 )
 
 EXPERIMENTS = [
-    EXPERIMENT_15X_SEPARATE,
+    # VGG,
+    # RESNET,
+    DENSE, 
+    INCEPTION,
+    MOBILE,
 ]
 
 

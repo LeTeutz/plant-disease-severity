@@ -67,3 +67,4 @@
 %pip install urllib3==2.2.1
 %pip install wandb==0.17.0
 %pip install wcwidth==0.2.13
+%pip install efficientnet_pytorch

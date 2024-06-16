@@ -9,9 +9,12 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
 from torchvision import transforms
-
 from utils import DiaMOSDataset, format_time, flat_accuracy, EarlyStopping, animal_version_name
-
+from efficientnet_pytorch import EfficientNet
+from torchvision.models import densenet201
+from torchvision.models import mobilenet_v2
+from torchvision.models import inception_v3
+from torchvision.models import resnet50
 
 class DiseaseModel(nn.Module):
     def __init__(self, num_disease_classes):
@@ -39,6 +42,101 @@ class DiseaseModel(nn.Module):
         return x
 
 
+class DiseaseModelResNet(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelResNet, self).__init__()
+        resnet = resnet50(pretrained=True)
+        for param in resnet.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(resnet.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+class DiseaseModelDenseNet(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelDenseNet, self).__init__()
+        densenet = densenet201(pretrained=True)
+        for param in densenet.parameters():
+            param.requires_grad = False
+        self.features = densenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1920 * 7 * 7, 4096),  # Update the input size of the first linear layer
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Reshape the output to a 4D tensor
+        x = self.classifier(x)
+        return x
+
+class DiseaseModelInception(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelInception, self).__init__()
+        self.inception = inception_v3(pretrained=True, aux_logits=False)  # Disable aux_logits
+
+        # Freeze the convolutional base
+        for param in self.inception.parameters():
+            param.requires_grad = False
+
+        # Replace the final fully connected layer
+        in_features_main = self.inception.fc.in_features
+        self.inception.fc = nn.Sequential(
+            nn.Linear(in_features_main, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.inception(x)
+        return x 
+    
+
+class DiseaseModelMobile(nn.Module):
+    def __init__(self, num_disease_classes):
+        super(DiseaseModelMobile, self).__init__()
+        mobilenet = mobilenet_v2(pretrained=True)
+        for param in mobilenet.parameters():
+            param.requires_grad = False
+        self.features = mobilenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(62720, 4096),  # Adjusted input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_disease_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Reshape the output to a 4D tensor
+        x = self.classifier(x)
+        return x
+
 class SeverityModel(nn.Module):
     def __init__(self, num_severity_levels):
         super(SeverityModel, self).__init__()
@@ -60,6 +158,102 @@ class SeverityModel(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelResNet(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelResNet, self).__init__()
+        resnet = resnet50(pretrained=True)
+        for param in resnet.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(resnet.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(resnet.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelDenseNet(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelDenseNet, self).__init__()
+        densenet = densenet201(pretrained=True)
+        for param in densenet.parameters():
+            param.requires_grad = False
+        self.features = densenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1920 * 7 * 7, 4096),  # Correct input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelInception(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelInception, self).__init__()
+        inception = inception_v3(pretrained=True, aux_logits=False)  # Disable aux_logits
+        for param in inception.parameters():
+            param.requires_grad = False
+        self.features = nn.Sequential(*list(inception.children())[:-1])
+        self.classifier = nn.Sequential(
+            nn.Linear(inception.fc.in_features, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+class SeverityModelMobile(nn.Module):
+    def __init__(self, num_severity_levels):
+        super(SeverityModelMobile, self).__init__()
+        mobilenet = mobilenet_v2(pretrained=True)
+        for param in mobilenet.parameters():
+            param.requires_grad = False
+        self.features = mobilenet.features
+        self.classifier = nn.Sequential(
+            nn.Linear(1280, 4096),  # Correct input size
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_severity_levels)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x

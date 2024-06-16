@@ -58,9 +58,27 @@ EXPERIMENT1 = SimpleNamespace(
 # )
 
 
-EXPERIMENTS = [
-    EXPERIMENT1
-]
+# EXPERIMENT_15X_SEPARATE = SimpleNamespace(
+#     type = "separate",
+#     transforms = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ]),
+#     img_dir = 'data\\Pear\\leaves\\',
+#     data_path = 'data\\Pear\\',
+#     name = "1.5x_augmented_separated",
+#     project_name = "Teo Test Runs",
+#     epochs = 25,
+#     augmentation = True,
+#     augment_target_size_factor = 1.05,
+#     augment_save_dir = 'data\\Pear\\leaves\\augmented\\',
+# )
+
+# EXPERIMENTS = [
+#     EXPERIMENT_15X_SEPARATE,
+# ]
+
 
 
 def run_experiments(experiments):

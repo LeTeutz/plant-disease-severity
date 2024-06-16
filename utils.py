@@ -14,6 +14,7 @@ import random
 import torchvision.transforms.functional as F
 import math
 from wandb import Api
+import traceback
 
 animal_names = [
     "Aardvark", "Albatross", "Anteater", "Armadillo",
@@ -212,12 +213,15 @@ class DiaMOSDataset(Dataset):
             augmented_image = random_augmentations(image, possible_augmentations)
 
             augmented_filename = f"augmented_{current_size}.jpg"
-            augmented_filepath = os.path.join(save_dir, augmented_filename)
+            augmented_filepath = os.path.join(self.aug_dir, augmented_filename)
             try:
-                augmented_image.save(augmented_filepath)
+                augmented_image_np = np.array(augmented_image)
+                augmented_image_bgr = cv2.cvtColor(augmented_image_np, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(augmented_filepath, augmented_image_bgr)
             except TypeError as e:
                 print(f"Error saving image: {e}")
                 print(f"Image type: {type(augmented_image)}")
+                print(traceback.format_exc())
                 continue 
             augmented_data.append((augmented_filename, disease, severity))
             current_size += 1
